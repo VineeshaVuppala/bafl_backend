@@ -127,7 +127,7 @@ jobs:
       
       - name: Run Bandit (Security Linter)
         run: |
-          bandit -r . -f json -o bandit-report.json || echo "Bandit scan completed"
+          bandit -r . -f json -o bandit-report.json -x ./tests,./venv,./.venv || echo "Bandit scan completed"
           if [ -f bandit-report.json ]; then
             cat bandit-report.json
           fi
