@@ -1,0 +1,29 @@
+# Code Owners Configuration
+# 
+# This file defines who should be automatically requested for review
+# when a pull request is created that modifies specific files.
+# 
+# Format: path/pattern @username @org/team-name
+# 
+# For more information, see:
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything in the repo
+# Uncomment and replace with actual usernames/teams
+# * @rkajaria-1507
+
+# GitHub Actions workflows
+.github/workflows/ @rkajaria-1507
+
+# Deployment scripts require review
+scripts/ @rkajaria-1507
+
+# Configuration files require review
+*.yml @rkajaria-1507
+*.yaml @rkajaria-1507
+*.toml @rkajaria-1507
+*.ini @rkajaria-1507
+requirements*.txt @rkajaria-1507
+
+# Documentation
+*.md @rkajaria-1507

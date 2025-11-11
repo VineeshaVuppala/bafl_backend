@@ -1,0 +1,7 @@
+# Core Dependencies
+# Add your application dependencies here
+# Example:
+# flask==3.0.0
+# fastapi==0.104.1
+# django==5.0.0
+# requests==2.31.0
