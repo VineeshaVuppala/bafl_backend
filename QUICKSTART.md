@@ -187,9 +187,10 @@ sqlalchemy==2.0.0
 
 ## 📚 Additional Documentation
 
+- [CI/CD Setup Guide](CI_CD_SETUP.md) - Complete CI/CD and development workflow guide
 - [Complete Setup Guide](.github/SETUP_GUIDE.md) - Detailed configuration steps
 - [Branch Protection Details](.github/BRANCH_PROTECTION.md) - All protection rules explained
-- [README.md](README.md) - Full project documentation
+- [README.md](README.md) - Project overview
 
 ---
 

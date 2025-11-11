@@ -71,7 +71,8 @@ Complete CI/CD pipeline with all required jobs.
 .github/SETUP_GUIDE.md          - Detailed setup instructions
 .github/CODEOWNERS              - Code ownership configuration
 .github/PULL_REQUEST_TEMPLATE.md - PR template
-README.md                       - Updated with full documentation
+README.md                       - Project overview
+CI_CD_SETUP.md                  - Complete CI/CD and development guide
 QUICKSTART.md                   - Quick start guide
 IMPLEMENTATION_SUMMARY.md       - This file
 ```
@@ -315,7 +316,7 @@ Before using in production, customize these:
 
 ### For Developers
 - **Quick Start:** Read `QUICKSTART.md` (5 minutes)
-- **Daily Workflow:** See "Daily Workflow" section in `README.md`
+- **Daily Workflow:** See "Daily Workflow" section in `CI_CD_SETUP.md`
 - **PR Process:** Use `.github/PULL_REQUEST_TEMPLATE.md`
 
 ### For DevOps/Admins
