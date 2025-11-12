@@ -1,0 +1,55 @@
+[flake8]
+# Flake8 configuration
+
+# Maximum line length
+max-line-length = 127
+
+# Maximum complexity
+max-complexity = 10
+
+# Exclude patterns
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    env,
+    ENV,
+    .tox,
+    dist,
+    build,
+    *.egg-info,
+    .pytest_cache,
+    .mypy_cache,
+    migrations
+
+# Error codes to ignore
+# E203: whitespace before ':'
+# E501: line too long (handled by black)
+# W503: line break before binary operator
+# W504: line break after binary operator
+ignore =
+    E203,
+    E501,
+    W503,
+    W504
+
+# Select specific error codes
+select = E,W,F,C
+
+# Show source code for errors
+show-source = True
+
+# Show pep8 code for each error
+show-pep8 = True
+
+# Count errors
+count = True
+
+# Enable specific plugins
+enable-extensions = 
+
+# Per-file ignores
+per-file-ignores =
+    __init__.py:F401
+    tests/*:F401,F811
