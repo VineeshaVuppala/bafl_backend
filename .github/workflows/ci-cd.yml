@@ -1,5 +1,10 @@
 name: CI/CD Pipeline
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 on:
   pull_request:
     branches:
@@ -179,16 +184,18 @@ jobs:
           echo "Smoke tests passed"
       
       - name: Comment PR with Staging URL
+        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
         with:
+          github-token: ${{ secrets.PAT_SECRET }}
           script: |
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '🚀 Deployed to staging! Check it out at: ${{ steps.deploy.outputs.url }}'
+              body: '🚀 Deployed to staging! Check it out at: https://staging.example.com'
             })
+
 
   integration-tests:
     name: Run Integration Tests
