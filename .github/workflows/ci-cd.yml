@@ -265,10 +265,24 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            github.rest.repos.createDeploymentStatus({
+            // Create a simple issue comment notification instead
+            const message = `✅ **Production Deployment Successful**\n\nCommit: ${context.sha}\nBranch: ${context.ref}\nDeployed at: ${new Date().toISOString()}\n\nProduction URL: https://production.example.com`;
+            
+            // Find the most recent merged PR for this commit
+            const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              deployment_id: context.payload.deployment.id,
-              state: 'success',
-              description: 'Deployment to production succeeded'
-            })
+              commit_sha: context.sha
+            });
+            
+            if (prs.length > 0) {
+              // Comment on the PR that was merged
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prs[0].number,
+                body: message
+              });
+            }
+            
+            console.log('Production deployment notification sent')
