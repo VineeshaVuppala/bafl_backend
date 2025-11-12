@@ -92,7 +92,7 @@ git push origin feature/my-feature
 
 When you create a PR:
 - ✅ Code is linted and formatted checks run
-- ✅ Tests run on Python 3.9, 3.10, and 3.11
+- ✅ Tests run on Python 3.12
 - ✅ Security scans check for vulnerabilities
 - ✅ Code deploys to staging environment
 - ✅ Integration tests run on staging
@@ -205,7 +205,7 @@ sqlalchemy==2.0.0
 - Create and run a PR first to make them available.
 
 **Q: Tests fail in CI but pass locally**
-- Check Python version (CI tests on 3.9, 3.10, 3.11).
+- Ensure you're using Python 3.12 locally (use Conda environment).
 - Verify all dependencies are in `requirements.txt`.
 
 **Q: Deployment fails**

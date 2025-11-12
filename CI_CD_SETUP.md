@@ -45,7 +45,7 @@ When you create a pull request, the following happens automatically:
    ├── isort import sorting check
    └── Flake8 linting
 
-2. Run Tests - Python 3.9, 3.10, 3.11 (Required ✓)
+2. Run Tests - Python 3.12 (Required ✓)
    ├── Unit tests with pytest
    ├── Coverage reporting
    └── Upload coverage to Codecov
@@ -79,24 +79,25 @@ After all checks pass and the PR is approved:
 
 ### Prerequisites
 
-- Python 3.9 or higher
-- pip (Python package manager)
+- **Python 3.12** (required - latest stable version)
+- Anaconda or Miniconda (recommended for environment management)
 - Git
 
 ### Local Development Setup
+
+**Recommended: Using Conda (Python 3.12)**
 
 ```bash
 # Clone the repository
 git clone https://github.com/rkajaria-1507/BAFL-Backend.git
 cd BAFL-Backend
 
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Create and activate conda environment
+conda env create -f environment.yml
+conda activate bafl-backend
 
-# Install dependencies
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+# Verify Python version
+python --version  # Should show 3.12.x
 
 # Run tests
 pytest tests/
@@ -106,6 +107,26 @@ black --check .
 isort --check-only .
 flake8 .
 ```
+
+**Alternative: Using venv (Python 3.12)**
+
+```bash
+# Ensure you have Python 3.12 installed
+python3.12 --version
+
+# Create and activate virtual environment
+python3.12 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Run tests
+pytest tests/
+```
+
+**📚 For detailed Conda setup instructions, see [CONDA_SETUP.md](CONDA_SETUP.md)**
 
 ## 🔒 Branch Protection Configuration
 
