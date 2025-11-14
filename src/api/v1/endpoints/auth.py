@@ -1,0 +1,100 @@
+"""
+Authentication endpoints for login, token refresh, and logout.
+"""
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from src.db.database import get_db
+from src.schemas.auth import LoginRequest, TokenResponse, RefreshTokenRequest, LogoutRequest
+from src.schemas.common import MessageResponse
+from src.services.auth_service import AuthService
+from src.api.v1.dependencies.auth import get_current_user
+from src.db.models.user import User
+from src.core.logging import api_logger
+
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+def login(credentials: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    """
+    Authenticate user and return access and refresh tokens.
+    
+    - **username**: User's username
+    - **password**: User's password
+    """
+    api_logger.info(f"Login attempt for username: {credentials.username}")
+    
+    # Authenticate user
+    user = AuthService.authenticate_user(db, credentials.username, credentials.password)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Create tokens
+    access_token, refresh_token = AuthService.create_tokens(db, user)
+    
+    api_logger.info(f"Login successful for user: {credentials.username}")
+    
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer"
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    """
+    Refresh access token using refresh token.
+    
+    - **refresh_token**: Valid refresh token
+    """
+    api_logger.info("Token refresh request")
+    
+    try:
+        access_token, refresh_token = AuthService.refresh_tokens(db, request.refresh_token)
+        
+        api_logger.info("Token refresh successful")
+        
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        api_logger.error(f"Token refresh failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to refresh token"
+        )
+
+
+@router.post("/logout", response_model=MessageResponse, status_code=status.HTTP_200_OK)
+def logout(
+    request: LogoutRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> MessageResponse:
+    """
+    Logout user by revoking refresh token.
+    
+    - **refresh_token**: Refresh token to revoke
+    """
+    api_logger.info(f"Logout request from user: {current_user.username}")
+    
+    success = AuthService.logout(db, request.refresh_token)
+    
+    if success:
+        api_logger.info(f"User logged out: {current_user.username}")
+        return MessageResponse(message="Successfully logged out", success=True)
+    else:
+        return MessageResponse(message="Token already revoked or invalid", success=True)
