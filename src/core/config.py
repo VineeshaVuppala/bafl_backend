@@ -44,10 +44,10 @@ class Settings(BaseSettings):
         default="%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(funcName)s:%(lineno)d - %(message)s"
     )
     
-    # Initial Superadmin (for first-time setup)
-    INITIAL_SUPERADMIN_NAME: str = Field(default="Admin")
-    INITIAL_SUPERADMIN_USERNAME: str = Field(default="admin")
-    INITIAL_SUPERADMIN_PASSWORD: str = Field(default="changeme123")
+    # Initial Admin (for first-time setup)
+    INITIAL_ADMIN_NAME: str = Field(...)
+    INITIAL_ADMIN_USERNAME: str = Field(...)
+    INITIAL_ADMIN_PASSWORD: str = Field(...)
     
     @field_validator('CORS_ORIGINS', 'CORS_ALLOW_METHODS', 'CORS_ALLOW_HEADERS', mode='before')
     @classmethod

@@ -84,9 +84,9 @@ def create_initial_admin(db: Session) -> None:
     api_logger.info("Checking for initial admin...")
     
     # Get credentials from environment
-    username = settings.INITIAL_SUPERADMIN_USERNAME
-    name = settings.INITIAL_SUPERADMIN_NAME
-    password = settings.INITIAL_SUPERADMIN_PASSWORD
+    username = settings.INITIAL_ADMIN_USERNAME
+    name = settings.INITIAL_ADMIN_NAME
+    password = settings.INITIAL_ADMIN_PASSWORD
     
     # Check if admin exists
     existing = UserRepository.get_by_username(db, username)

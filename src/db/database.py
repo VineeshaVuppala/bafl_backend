@@ -28,7 +28,7 @@ SessionLocal = sessionmaker(
 Base = declarative_base()
 
 # Import all models to register with Base
-from src.db.models.user import User
+from src.db.models.user import User, RefreshToken
 from src.db.models.permission import Permission, UserPermission
 from src.db.models.role_permission import RolePermission
 
