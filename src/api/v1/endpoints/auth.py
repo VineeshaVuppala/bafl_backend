@@ -1,7 +1,8 @@
 """
 Authentication endpoints for login, token refresh, and logout.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Body
+from typing import Optional
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
@@ -17,30 +18,44 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
-def login(credentials: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def login(
+    username: Optional[str] = Form(None),
+    password: Optional[str] = Form(None),
+    json_body: Optional[LoginRequest] = Body(None),
+    db: Session = Depends(get_db),
+) -> TokenResponse:
     """
-    Authenticate user and return access and refresh tokens.
-    
-    - **username**: User's username
-    - **password**: User's password
+    Authenticate user and return tokens.
+    Supports both JSON and form-data.
     """
-    api_logger.info(f"Login attempt for username: {credentials.username}")
-    
-    # Authenticate user
-    user = AuthService.authenticate_user(db, credentials.username, credentials.password)
-    
+
+    # Priority: JSON body first
+    if json_body:
+        username = json_body.username
+        password = json_body.password
+
+    # If still missing → invalid request
+    if not username or not password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="username and password are required"
+        )
+
+    api_logger.info(f"Login attempt for username: {username}")
+
+    user = AuthService.authenticate_user(db, username, password)
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Create tokens
+
     access_token, refresh_token = AuthService.create_tokens(db, user)
-    
-    api_logger.info(f"Login successful for user: {credentials.username}")
-    
+
+    api_logger.info(f"Login successful for user: {username}")
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,

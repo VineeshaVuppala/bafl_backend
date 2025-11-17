@@ -14,7 +14,7 @@ A professional, scalable FastAPI backend with JWT authentication, role-based acc
 
 - **JWT Authentication**: Secure login with access and refresh tokens
 
-- **Role-Based Access Control**: Superadmin, Admin, and Coach roles**We strongly recommend using Conda for environment management.** See [CONDA_SETUP.md](CONDA_SETUP.md) for detailed setup instructions.
+- **Role-Based Access Control**: Admin, User, and Coach roles**We strongly recommend using Conda for environment management.** See [CONDA_SETUP.md](CONDA_SETUP.md) for detailed setup instructions.
 
 - **Custom Permissions**: Granular permission assignment and revocation
 
@@ -132,15 +132,15 @@ python main.py
 The application will automatically:
 - Create database tables
 - Initialize all permissions
-- Create the initial superadmin user
-- Start the server at http://localhost:8000
+- Create the initial admin user
+- Start the server at http://localhost:4256
 
 ## 📚 API Documentation
 
 Once running, access:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/health
+- **Swagger UI**: http://localhost:4256/docs
+- **ReDoc**: http://localhost:4256/redoc
+- **Health Check**: http://localhost:4256/health
 
 ## 👥 Roles & Permissions
 
@@ -148,36 +148,35 @@ Once running, access:
 
 | Role | Description | Can Create |
 |------|-------------|------------|
-| **Superadmin** | Full system access | Superadmins, Admins, Coaches |
-| **Admin** | Limited administrative access | Admins, Coaches |
-| **Coach** | Basic user access | None |
+| **Admin** | Full system access (only one) | Users, Coaches |
+| **User** | Regular user access | None |
+| **Coach** | Coaching staff access | None |
 
 ### Default Permissions by Role
 
-**Superadmin:**
-- `create_superadmin` - Create superadmin users
-- `create_admin` - Create admin users
+**Admin:**
+- `create_user` - Create regular users
 - `create_coach` - Create coach users
 - `delete_user` - Delete any user
-- `view_users` - View all users
-- `edit_user` - Edit user information
+- `view_all_users` - View all users
+- `edit_all_users` - Edit any user information
 - `assign_permissions` - Assign custom permissions
 - `revoke_permissions` - Revoke custom permissions
 - `view_permissions` - View permission details
+- `view_own_profile` - View own profile
+- `edit_own_profile` - Edit own profile
 
-**Admin:**
-- `create_admin` - Create admin users
-- `create_coach` - Create coach users
-- `view_users` - View all users
-- `edit_user` - Edit user information
-- `view_permissions` - View permission details
+**User:**
+- `view_own_profile` - View own profile
+- `edit_own_profile` - Edit own profile
 
 **Coach:**
-- `view_users` - View all users
+- `view_own_profile` - View own profile
+- `edit_own_profile` - Edit own profile
 
 ### Custom Permissions
 
-Superadmins and Admins can assign additional permissions to users beyond their role defaults, enabling fine-grained access control.
+The Admin can assign additional permissions to users beyond their role defaults, enabling fine-grained access control.
 
 ## 🔌 API Endpoints
 
@@ -284,7 +283,7 @@ Logs are stored in the `logs/` directory:
 
 ## 👤 Initial Credentials
 
-**Superadmin Account:**
+**Admin Account:**
 - Username: `raghav`
 - Password: `raghav123`
 

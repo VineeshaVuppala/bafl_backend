@@ -1,7 +1,7 @@
 """
 User management endpoints for creating, viewing, updating, and deleting users.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
@@ -30,12 +30,12 @@ def create_user(
     db: Session = Depends(get_db)
 ) -> UserResponse:
     """
-    Create a new user. Only admins and superadmins can create users based on their permissions.
+    Create a new user. Only ADMIN can create users.
     
     - **name**: User's full name
     - **username**: Unique username
     - **password**: User's password
-    - **role**: User role (superadmin, admin, or coach)
+    - **role**: User role (admin, user, or coach)
     """
     api_logger.info(
         f"User creation request by {current_user.username} for new user: {user_data.username}"
@@ -180,7 +180,9 @@ def update_user(
     
     - **user_id**: User ID
     - **name**: New name (optional)
-    - **is_active**: New active status (optional)
+    - **username**: New username (optional)
+    - **password**: New password (optional)
+    - **is_active**: New active status (optional, ADMIN only)
     """
     api_logger.info(f"User {user_id} update requested by {current_user.username}")
     
@@ -195,6 +197,8 @@ def update_user(
         db=db,
         user_id=user_id,
         name=user_update.name,
+        username=user_update.username,
+        password=user_update.password,
         is_active=user_update.is_active
     )
     

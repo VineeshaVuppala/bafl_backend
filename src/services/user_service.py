@@ -97,6 +97,8 @@ class UserService:
         db: Session,
         user_id: int,
         name: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         is_active: Optional[bool] = None
     ) -> User:
         """
@@ -106,19 +108,33 @@ class UserService:
             db: Database session
             user_id: User ID
             name: New name (optional)
+            username: New username (optional)
+            password: New password (optional)
             is_active: New active status (optional)
             
         Returns:
             Updated user
             
         Raises:
-            HTTPException: If user not found
+            HTTPException: If user not found or username exists
         """
         user = UserService.get_user_by_id(db, user_id)
         
         update_data = {}
         if name is not None:
             update_data["name"] = name
+        if username is not None:
+            # Check if username is taken by another user
+            existing_user = UserRepository.get_by_username(db, username)
+            if existing_user and existing_user.id != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Username '{username}' already exists"
+                )
+            update_data["username"] = username
+        if password is not None:
+            # Hash the new password
+            update_data["hashed_password"] = PasswordHandler.hash(password)
         if is_active is not None:
             update_data["is_active"] = is_active
         

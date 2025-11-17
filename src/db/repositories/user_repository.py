@@ -59,9 +59,11 @@ class UserRepository:
             Updated user
         """
         for key, value in update_data.items():
-            if hasattr(user, key) and value is not None:
+            if hasattr(user, key):
                 setattr(user, key, value)
+                db_logger.debug(f"Setting {key} to {value if key != 'hashed_password' else '***'}")
         
+        db.add(user)  # Explicitly mark as modified
         db.commit()
         db.refresh(user)
         db_logger.info(f"User updated: {user.username} (ID: {user.id})")
