@@ -148,7 +148,7 @@ Once running, access:
 
 | Role | Description | Can Create |
 |------|-------------|------------|
-| **Admin** | Full system access (only one) | Users, Coaches |
+| **Admin** | Full system access (only one) | Users, Coaches, Admins |
 | **User** | Regular user access | None |
 | **Coach** | Coaching staff access | None |
 
@@ -157,7 +157,10 @@ Once running, access:
 **Admin:**
 - `create_user` - Create regular users
 - `create_coach` - Create coach users
+- `create_admin` - Create admin users
 - `delete_user` - Delete any user
+- `delete_coach` - Delete coach users
+- `delete_admin` - Delete admin users
 - `view_all_users` - View all users
 - `edit_all_users` - Edit any user information
 - `assign_permissions` - Assign custom permissions

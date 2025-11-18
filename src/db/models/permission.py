@@ -15,7 +15,10 @@ class PermissionType(str, enum.Enum):
     # User management
     CREATE_USER = "create_user"
     CREATE_COACH = "create_coach"
+    CREATE_ADMIN = "create_admin"
     DELETE_USER = "delete_user"
+    DELETE_COACH = "delete_coach"
+    DELETE_ADMIN = "delete_admin"
     VIEW_ALL_USERS = "view_all_users"
     EDIT_ALL_USERS = "edit_all_users"
     VIEW_OWN_PROFILE = "view_own_profile"

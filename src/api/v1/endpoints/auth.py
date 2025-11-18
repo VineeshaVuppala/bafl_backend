@@ -1,7 +1,7 @@
 """
 Authentication endpoints for login, token refresh, and logout.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Form, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Body, Request
 from typing import Optional
 from sqlalchemy.orm import Session
 
@@ -17,30 +17,21 @@ from src.core.logging import api_logger
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
-def login(
-    username: Optional[str] = Form(None),
-    password: Optional[str] = Form(None),
-    json_body: Optional[LoginRequest] = Body(None),
-    db: Session = Depends(get_db),
-) -> TokenResponse:
+def perform_login(username: str, password: str, db: Session) -> TokenResponse:
     """
-    Authenticate user and return tokens.
-    Supports both JSON and form-data.
+    Core login logic - authenticates user and returns tokens.
+    
+    Args:
+        username: User's username
+        password: User's password
+        db: Database session
+        
+    Returns:
+        TokenResponse with access and refresh tokens
+        
+    Raises:
+        HTTPException: If authentication fails
     """
-
-    # Priority: JSON body first
-    if json_body:
-        username = json_body.username
-        password = json_body.password
-
-    # If still missing → invalid request
-    if not username or not password:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="username and password are required"
-        )
-
     api_logger.info(f"Login attempt for username: {username}")
 
     user = AuthService.authenticate_user(db, username, password)
@@ -61,6 +52,69 @@ def login(
         refresh_token=refresh_token,
         token_type="bearer"
     )
+
+
+@router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+async def login(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> TokenResponse:
+    """
+    Login endpoint that accepts both form-data and JSON.
+    Returns JSON response with access and refresh tokens.
+
+    Provide either form fields `username` and `password`,
+    or a JSON body: {"username": "...", "password": "..."}.
+    """
+    final_username: Optional[str] = None
+    final_password: Optional[str] = None
+
+    content_type = (request.headers.get("content-type") or "").lower()
+    try:
+        if "application/json" in content_type:
+            body = await request.json()
+            if isinstance(body, dict):
+                final_username = body.get("username")
+                final_password = body.get("password")
+        else:
+            form = await request.form()
+            final_username = form.get("username")
+            final_password = form.get("password")
+    except Exception:
+        # Fallback: attempt both if parsing fails due to incorrect content-type
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                final_username = final_username or body.get("username")
+                final_password = final_password or body.get("password")
+        except Exception:
+            try:
+                form = await request.form()
+                final_username = final_username or form.get("username")
+                final_password = final_password or form.get("password")
+            except Exception:
+                pass
+
+    if not final_username or not final_password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Username and password are required (via JSON or form).",
+        )
+
+    return perform_login(str(final_username), str(final_password), db)
+
+
+@router.post("/login/json", response_model=TokenResponse, status_code=status.HTTP_200_OK, include_in_schema=False)
+def login_json(
+    credentials: LoginRequest = Body(...),
+    db: Session = Depends(get_db)
+) -> TokenResponse:
+    """
+    Login with JSON (hidden from documentation, for API testing).
+    Accepts JSON only.
+    Returns JSON response with access and refresh tokens.
+    """
+    return perform_login(credentials.username, credentials.password, db)
 
 
 @router.post("/refresh", response_model=TokenResponse, status_code=status.HTTP_200_OK)

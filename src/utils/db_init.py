@@ -21,7 +21,10 @@ DEFAULT_ROLE_PERMISSIONS = {
         # Can manage all users
         PermissionType.CREATE_USER,
         PermissionType.CREATE_COACH,
+        PermissionType.CREATE_ADMIN,
         PermissionType.DELETE_USER,
+        PermissionType.DELETE_COACH,
+        PermissionType.DELETE_ADMIN,
         PermissionType.VIEW_ALL_USERS,
         PermissionType.EDIT_ALL_USERS,
         # Can manage permissions

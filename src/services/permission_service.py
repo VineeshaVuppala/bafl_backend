@@ -31,14 +31,14 @@ class PermissionService:
         """
         # Start with role-based permissions from database
         role_permissions = RolePermissionRepository.get_permissions_for_role(db, user.role)
-        permissions = set(perm.name for perm in role_permissions)
+        permissions = {perm.name for perm in role_permissions}
         
         # Add custom user-specific permissions
         user_perms = UserPermissionRepository.get_user_permissions(db, user.id)
         for user_perm in user_perms:
             permissions.add(user_perm.permission.name)
         
-        return list(permissions)
+        return sorted(list(permissions), key=lambda perm: perm.value)
     
     @staticmethod
     def has_permission(db: Session, user: User, permission: PermissionType) -> bool:
@@ -60,7 +60,6 @@ class PermissionService:
     def can_create_role(db: Session, creator: User, target_role: UserRole) -> bool:
         """
         Check if user can create another user with specific role.
-        Only ADMIN can create users/coaches.
         
         Args:
             db: Database session
@@ -70,20 +69,40 @@ class PermissionService:
         Returns:
             True if allowed
         """
-        # Only ADMIN can create users
-        if creator.role != UserRole.ADMIN:
+        required_permission = PermissionService.get_create_permission_for_role(target_role)
+        if required_permission is None:
             return False
-        
-        # ADMIN can create USER or COACH
-        if target_role in [UserRole.USER, UserRole.COACH]:
-            perm_map = {
-                UserRole.USER: PermissionType.CREATE_USER,
-                UserRole.COACH: PermissionType.CREATE_COACH,
-            }
-            return PermissionService.has_permission(db, creator, perm_map[target_role])
-        
-        # ADMIN cannot create another ADMIN
-        return False
+        return PermissionService.has_permission(db, creator, required_permission)
+
+    @staticmethod
+    def get_create_permission_for_role(target_role: UserRole) -> PermissionType | None:
+        """Return the required create permission for the given role."""
+        permission_map = {
+            UserRole.USER: PermissionType.CREATE_USER,
+            UserRole.COACH: PermissionType.CREATE_COACH,
+            UserRole.ADMIN: PermissionType.CREATE_ADMIN,
+        }
+        return permission_map.get(target_role)
+
+    @staticmethod
+    def get_delete_permission_for_role(target_role: UserRole) -> PermissionType | None:
+        """Return the required delete permission for the given role."""
+        permission_map = {
+            UserRole.USER: PermissionType.DELETE_USER,
+            UserRole.COACH: PermissionType.DELETE_COACH,
+            UserRole.ADMIN: PermissionType.DELETE_ADMIN,
+        }
+        return permission_map.get(target_role)
+
+    @staticmethod
+    def can_delete_user(db: Session, deleter: User, target_user: User) -> bool:
+        """
+        Check if the deleter can delete the target user based on permissions.
+        """
+        required_permission = PermissionService.get_delete_permission_for_role(target_user.role)
+        if required_permission is None:
+            return False
+        return PermissionService.has_permission(db, deleter, required_permission)
     
     @staticmethod
     def can_manage_permissions(db: Session, manager: User, target_user: User) -> bool:

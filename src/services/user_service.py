@@ -144,24 +144,24 @@ class UserService:
         return updated_user
     
     @staticmethod
-    def delete_user(db: Session, user_id: int, deleter: User) -> None:
+    def delete_user(db: Session, target_user: User, deleter: User) -> None:
         """
-        Delete a user.
+        Delete a user. Assumes ``target_user`` has already been retrieved and
+        validated by the caller.
         
         Args:
             db: Database session
-            user_id: User ID to delete
+            target_user: User instance to delete
             deleter: User performing the deletion
             
         Raises:
-            HTTPException: If user not found or trying to delete self
+            HTTPException: If trying to delete self
         """
-        if user_id == deleter.id:
+        if target_user.id == deleter.id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete your own account"
             )
         
-        user = UserService.get_user_by_id(db, user_id)
-        UserRepository.delete(db, user)
-        api_logger.info(f"User '{user.username}' deleted by '{deleter.username}'")
+        UserRepository.delete(db, target_user)
+        api_logger.info(f"User '{target_user.username}' deleted by '{deleter.username}'")

@@ -1,37 +1,28 @@
 """
-Authentication related Pydantic schemas.
+Authentication-related Pydantic schemas.
 """
 from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
-    """Schema for login request."""
-    username: str = Field(..., min_length=3, max_length=50)
-    password: str = Field(..., min_length=1)
+	"""Request body for login via JSON."""
+	username: str
+	password: str
 
 
 class TokenResponse(BaseModel):
-    """Schema for token response."""
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
+	"""Response with access/refresh tokens."""
+	access_token: str
+	refresh_token: str
+	token_type: str = Field(default="bearer")
 
 
 class RefreshTokenRequest(BaseModel):
-    """Schema for refresh token request."""
-    refresh_token: str = Field(..., description="Refresh token")
+	"""Request body for refreshing tokens."""
+	refresh_token: str
 
 
 class LogoutRequest(BaseModel):
-    """Schema for logout request."""
-    refresh_token: str = Field(..., description="Refresh token to revoke")
+	"""Request body for logout (revoke refresh token)."""
+	refresh_token: str
 
-
-class TokenPayload(BaseModel):
-    """Schema for token payload (internal use)."""
-    sub: str  # username
-    user_id: int
-    role: str
-    exp: int
-    iat: int
-    type: str

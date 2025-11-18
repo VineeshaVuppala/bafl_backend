@@ -90,8 +90,7 @@ def migrate_database():
         
         # Delete old permission types that no longer exist
         old_permissions = [
-            'CREATE_SUPERADMIN',
-            'CREATE_ADMIN'
+            'CREATE_SUPERADMIN'
         ]
         
         for perm in old_permissions:
@@ -104,6 +103,21 @@ def migrate_database():
             'VIEW_USERS': 'VIEW_ALL_USERS',
             'EDIT_USER': 'EDIT_ALL_USERS'
         }
+
+        # Add newly introduced permissions if missing (for migrated DBs)
+        new_permissions = [
+            'CREATE_ADMIN',
+            'DELETE_COACH',
+            'DELETE_ADMIN'
+        ]
+        for perm in new_permissions:
+            cursor.execute("SELECT id FROM permissions WHERE name = ?", (perm,))
+            if cursor.fetchone() is None:
+                cursor.execute(
+                    "INSERT INTO permissions (name, description, created_at) VALUES (?, ?, datetime('now'))",
+                    (perm, f'Permission: {perm}')
+                )
+                print(f"   - Added new permission: {perm}")
         
         for old_name, new_name in permission_renames.items():
             cursor.execute("""

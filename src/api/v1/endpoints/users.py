@@ -1,11 +1,16 @@
 """
 User management endpoints for creating, viewing, updating, and deleting users.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from typing import Optional
+from json import JSONDecodeError
+from starlette.datastructures import FormData
+from pydantic import ValidationError
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from src.db.database import get_db
-from src.db.models.user import User
+from src.db.models.user import User, UserRole
 from src.schemas.user import UserCreate, UserResponse, UserUpdate, UserListResponse
 from src.schemas.common import MessageResponse
 from src.services.user_service import UserService
@@ -13,7 +18,6 @@ from src.services.permission_service import PermissionService
 from src.api.v1.dependencies.auth import (
     get_current_user,
     require_view_all_users,
-    require_delete_user,
     can_access_user,
     can_edit_user
 )
@@ -22,39 +26,224 @@ from src.core.logging import api_logger
 
 router = APIRouter(prefix="/users", tags=["User Management"])
 
+SUPPORTED_CONTENT_TYPES_DETAIL = (
+    "Supported content types are application/json, application/x-www-form-urlencoded, and multipart/form-data."
+)
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def create_user(
-    user_data: UserCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+
+def _is_json_content_type(content_type: Optional[str]) -> bool:
+    """Return ``True`` when the provided content type represents JSON."""
+
+    if not content_type:
+        return True
+    return "application/json" in content_type
+
+
+def _is_form_content_type(content_type: Optional[str]) -> bool:
+    """Return ``True`` when the provided content type represents form data."""
+
+    if not content_type:
+        return False
+    return any(
+        candidate in content_type
+        for candidate in ("application/x-www-form-urlencoded", "multipart/form-data")
+    )
+
+
+def _missing_field_errors(fields: list[str]) -> list[dict[str, object]]:
+    """Produce FastAPI-compatible validation errors for missing form fields."""
+
+    return [
+        {"loc": ["body", field], "msg": "Field required", "type": "value_error.missing"}
+        for field in fields
+    ]
+
+
+def _parse_optional_bool(value: object, field: str) -> Optional[bool]:
+    """Parse truthy/falsey string values into ``bool`` while preserving ``None``."""
+
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+
+    value_str = str(value).strip().lower()
+    if value_str in {"true", "1", "yes", "on"}:
+        return True
+    if value_str in {"false", "0", "no", "off"}:
+        return False
+
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=[
+            {
+                "loc": ["body", field],
+                "msg": "Invalid boolean value",
+                "type": "type_error.bool",
+            }
+        ],
+    )
+
+
+def _parse_user_create_form(form: FormData) -> UserCreate:
+    """Validate and normalise user creation data submitted via form payloads."""
+
+    raw_data = {
+        "name": form.get("name"),
+        "username": form.get("username"),
+        "password": form.get("password"),
+        "role": form.get("role"),
+    }
+
+    missing = [field for field, value in raw_data.items() if value in (None, "")]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=_missing_field_errors(missing),
+        )
+
+    raw_data["role"] = str(raw_data["role"]).lower()
+
+    try:
+        return UserCreate.model_validate(raw_data)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=jsonable_encoder(exc.errors()),
+        ) from exc
+
+
+def _parse_user_update_form(form: FormData) -> UserUpdate:
+    """Validate and normalise user update data submitted via form payloads."""
+
+    raw_data: dict[str, object] = {}
+
+    for field in ("name", "username", "password"):
+        value = form.get(field)
+        if value not in (None, ""):
+            raw_data[field] = value
+
+    is_active_value = form.get("is_active")
+    parsed_is_active = _parse_optional_bool(is_active_value, "is_active")
+    if parsed_is_active is not None:
+        raw_data["is_active"] = parsed_is_active
+
+    try:
+        return UserUpdate.model_validate(raw_data)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=jsonable_encoder(exc.errors()),
+        ) from exc
+
+
+async def _extract_user_create_payload(request: Request) -> UserCreate:
+    """Read and validate user creation payload from JSON or form input."""
+
+    content_type = request.headers.get("content-type")
+
+    if _is_json_content_type(content_type):
+        try:
+            raw_data = await request.json()
+        except JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON body.",
+            ) from exc
+
+        try:
+            return UserCreate.model_validate(raw_data)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=jsonable_encoder(exc.errors()),
+            ) from exc
+
+    if _is_form_content_type(content_type):
+        form = await request.form()
+        return _parse_user_create_form(form)
+
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail=SUPPORTED_CONTENT_TYPES_DETAIL,
+    )
+
+
+async def _extract_user_update_payload(request: Request) -> UserUpdate:
+    """Read and validate user update payload from JSON or form input."""
+
+    content_type = request.headers.get("content-type")
+
+    if _is_json_content_type(content_type):
+        try:
+            raw_data = await request.json()
+        except JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid JSON body.",
+            ) from exc
+
+        try:
+            return UserUpdate.model_validate(raw_data)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=jsonable_encoder(exc.errors()),
+            ) from exc
+
+    if _is_form_content_type(content_type):
+        form = await request.form()
+        return _parse_user_update_form(form)
+
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail=SUPPORTED_CONTENT_TYPES_DETAIL,
+    )
+
+
+def perform_create_user(
+    name: str,
+    username: str,
+    password: str,
+    role: UserRole,
+    current_user: User,
+    db: Session
 ) -> UserResponse:
     """
-    Create a new user. Only ADMIN can create users.
+    Core user creation logic.
     
-    - **name**: User's full name
-    - **username**: Unique username
-    - **password**: User's password
-    - **role**: User role (admin, user, or coach)
+    Args:
+        name: User's full name
+        username: Unique username
+        password: User's password
+        role: User role
+        current_user: User creating this user
+        db: Database session
+        
+    Returns:
+        UserResponse with created user data
+        
+    Raises:
+        HTTPException: If permission denied or username exists
     """
     api_logger.info(
-        f"User creation request by {current_user.username} for new user: {user_data.username}"
+        f"User creation request by {current_user.username} for new user: {username}"
     )
     
     # Check if current user can create this role
-    if not PermissionService.can_create_role(db, current_user, user_data.role):
+    if not PermissionService.can_create_role(db, current_user, role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"You do not have permission to create users with role: {user_data.role.value}"
+            detail=f"You do not have permission to create users with role: {role.value}"
         )
     
     # Create user
     new_user = UserService.create_user(
         db=db,
-        name=user_data.name,
-        username=user_data.username,
-        password=user_data.password,
-        role=user_data.role,
+        name=name,
+        username=username,
+        password=password,
+        role=role,
         creator=current_user
     )
     
@@ -69,6 +258,49 @@ def create_user(
         is_active=new_user.is_active,
         created_at=new_user.created_at,
         permissions=[p.value for p in permissions]
+    )
+
+
+@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> UserResponse:
+    """Create a new user from either JSON or form payloads."""
+
+    user_data = await _extract_user_create_payload(request)
+
+    return perform_create_user(
+        user_data.name,
+        user_data.username,
+        user_data.password,
+        user_data.role,
+        current_user,
+        db
+    )
+
+
+@router.post(
+    "/json",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False
+)
+async def create_user_json_legacy(
+    user_data: UserCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> UserResponse:
+    """Backward compatible JSON-only endpoint kept for existing clients/tests."""
+
+    return perform_create_user(
+        user_data.name,
+        user_data.username,
+        user_data.password,
+        user_data.role,
+        current_user,
+        db
     )
 
 
@@ -166,23 +398,32 @@ def get_user(
     )
 
 
-@router.put("/{user_id}", response_model=UserResponse, status_code=status.HTTP_200_OK)
-def update_user(
+def perform_update_user(
     user_id: int,
-    user_update: UserUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    name: Optional[str],
+    username: Optional[str],
+    password: Optional[str],
+    is_active: Optional[bool],
+    current_user: User,
+    db: Session
 ) -> UserResponse:
     """
-    Update a user.
-    - ADMIN can edit all users
-    - Users/Coaches can only edit their own profile
+    Core user update logic.
     
-    - **user_id**: User ID
-    - **name**: New name (optional)
-    - **username**: New username (optional)
-    - **password**: New password (optional)
-    - **is_active**: New active status (optional, ADMIN only)
+    Args:
+        user_id: User ID to update
+        name: New name (optional)
+        username: New username (optional)
+        password: New password (optional)
+        is_active: New active status (optional)
+        current_user: User performing the update
+        db: Database session
+        
+    Returns:
+        UserResponse with updated user data
+        
+    Raises:
+        HTTPException: If permission denied or username exists
     """
     api_logger.info(f"User {user_id} update requested by {current_user.username}")
     
@@ -196,10 +437,10 @@ def update_user(
     updated_user = UserService.update_user(
         db=db,
         user_id=user_id,
-        name=user_update.name,
-        username=user_update.username,
-        password=user_update.password,
-        is_active=user_update.is_active
+        name=name,
+        username=username,
+        password=password,
+        is_active=is_active
     )
     
     permissions = PermissionService.get_user_permissions(db, updated_user)
@@ -215,19 +456,78 @@ def update_user(
     )
 
 
+@router.put("/{user_id}", response_model=UserResponse, status_code=status.HTTP_200_OK)
+async def update_user(
+    user_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> UserResponse:
+    """Update a user from either JSON or form payloads."""
+
+    user_update = await _extract_user_update_payload(request)
+
+    return perform_update_user(
+        user_id,
+        user_update.name,
+        user_update.username,
+        user_update.password,
+        user_update.is_active,
+        current_user,
+        db
+    )
+
+
+@router.put(
+    "/{user_id}/json",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False
+)
+async def update_user_json_legacy(
+    user_id: int,
+    user_update: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> UserResponse:
+    """Backward compatible JSON-only endpoint kept for existing clients/tests."""
+
+    return perform_update_user(
+        user_id,
+        user_update.name,
+        user_update.username,
+        user_update.password,
+        user_update.is_active,
+        current_user,
+        db
+    )
+
+
 @router.delete("/{user_id}", response_model=MessageResponse, status_code=status.HTTP_200_OK)
 def delete_user(
     user_id: int,
-    current_user: User = Depends(require_delete_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> MessageResponse:
     """
-    Delete a user. Requires DELETE_USER permission.
+    Delete a user. Requires the appropriate delete permission for the target role.
     
     - **user_id**: User ID
     """
     api_logger.info(f"User {user_id} deletion requested by {current_user.username}")
-    
-    UserService.delete_user(db, user_id, current_user)
-    
+
+    target_user = UserService.get_user_by_id(db, user_id)
+
+    if not PermissionService.can_delete_user(db, current_user, target_user):
+        required_permission = PermissionService.get_delete_permission_for_role(target_user.role)
+        detail = "You do not have permission to delete this user"
+        if required_permission:
+            detail = f"Missing required permission: {required_permission.value}"
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail
+        )
+
+    UserService.delete_user(db, target_user, current_user)
+
     return MessageResponse(message="User deleted successfully", success=True)
