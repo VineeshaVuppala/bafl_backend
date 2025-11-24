@@ -1,18 +1,23 @@
-"""
-Permission related database models.
-"""
+"""Permission related database models."""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum as SQLEnum
-from sqlalchemy.orm import relationship
 import enum
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    ForeignKey,
+    UniqueConstraint,
+    CheckConstraint,
+)
+from sqlalchemy.orm import relationship
 
 from src.db.database import Base
 
 
 class PermissionType(str, enum.Enum):
-    """Available permission types in the system."""
-    
-    # User management
+    """Baseline permission names used by legacy business logic."""
+
     CREATE_USER = "create_user"
     CREATE_COACH = "create_coach"
     CREATE_ADMIN = "create_admin"
@@ -23,45 +28,62 @@ class PermissionType(str, enum.Enum):
     EDIT_ALL_USERS = "edit_all_users"
     VIEW_OWN_PROFILE = "view_own_profile"
     EDIT_OWN_PROFILE = "edit_own_profile"
-    
-    # Permission management
     ASSIGN_PERMISSIONS = "assign_permissions"
     REVOKE_PERMISSIONS = "revoke_permissions"
     VIEW_PERMISSIONS = "view_permissions"
+    PHYSICAL_SESSIONS_VIEW = "physical_sessions_view"
+    PHYSICAL_SESSIONS_EDIT = "physical_sessions_edit"
+    PHYSICAL_SESSIONS_ADD = "physical_sessions_add"
 
 
 class Permission(Base):
     """Permission model."""
-    
+
     __tablename__ = "permissions"
-    
+
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(SQLEnum(PermissionType), unique=True, nullable=False, index=True)
+    permission_name = Column(String(100), unique=True, nullable=False, index=True)
     description = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
     # Relationships
-    user_permissions = relationship("UserPermission", back_populates="permission")
-    
+    assignments = relationship("UserPermission", back_populates="permission", cascade="all, delete-orphan")
+
     def __repr__(self) -> str:
-        return f"<Permission(id={self.id}, name='{self.name.value}')>"
+        return f"<Permission(id={self.id}, permission_name='{self.permission_name}')>"
+
+    @property
+    def user_permissions(self):
+        return self.assignments
 
 
 class UserPermission(Base):
-    """User-Permission association table for custom permissions."""
-    
+    """Flexible permission assignment spanning users and coaches."""
+
     __tablename__ = "user_permissions"
-    
+
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    coach_id = Column(Integer, ForeignKey("coaches.id", ondelete="CASCADE"), nullable=True, index=True)
     permission_id = Column(Integer, ForeignKey("permissions.id", ondelete="CASCADE"), nullable=False, index=True)
-    granted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    granted_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
-    # Relationships
+    assigned_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
     user = relationship("User", foreign_keys=[user_id], back_populates="permissions")
-    permission = relationship("Permission", back_populates="user_permissions")
-    granted_by = relationship("User", foreign_keys=[granted_by_user_id], post_update=True)
-    
+    coach = relationship("Coach", foreign_keys=[coach_id], back_populates="permissions")
+    permission = relationship("Permission", back_populates="assignments")
+    assigned_by_user = relationship("User", foreign_keys=[assigned_by])
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "permission_id", name="uq_user_permissions_user"),
+        UniqueConstraint("coach_id", "permission_id", name="uq_user_permissions_coach"),
+        CheckConstraint(
+            "(user_id IS NOT NULL) OR (coach_id IS NOT NULL)",
+            name="chk_user_permissions_target",
+        ),
+    )
+
     def __repr__(self) -> str:
-        return f"<UserPermission(user_id={self.user_id}, permission_id={self.permission_id})>"
+        target = f"user_id={self.user_id}" if self.user_id is not None else f"coach_id={self.coach_id}"
+        return f"<UserPermission({target}, permission_id={self.permission_id})>"

@@ -13,13 +13,26 @@ from src.db.database import get_db
 from src.db.models.user import User, UserRole
 from src.schemas.user import UserCreate, UserResponse, UserUpdate, UserListResponse
 from src.schemas.common import MessageResponse
+from src.schemas.auth import (
+    CoachBatchSummary,
+    CoachProfileInfo,
+    CoachProfileResponse,
+    CoachSchoolSummary,
+    PermissionSummary,
+    UserMeResponse,
+    UserProfileInfo,
+    UserProfileResponse,
+)
 from src.services.user_service import UserService
 from src.services.permission_service import PermissionService
+from src.services.coach_service import CoachService
 from src.api.v1.dependencies.auth import (
+    AuthenticatedIdentity,
+    can_access_user,
+    can_edit_user,
+    get_current_identity,
     get_current_user,
     require_view_all_users,
-    can_access_user,
-    can_edit_user
 )
 from src.core.logging import api_logger
 
@@ -247,6 +260,9 @@ def perform_create_user(
         creator=current_user
     )
     
+    # Sync coach if applicable
+    CoachService.sync_coach(db, new_user)
+    
     # Get user permissions for response
     permissions = PermissionService.get_user_permissions(db, new_user)
     
@@ -261,7 +277,21 @@ def perform_create_user(
     )
 
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": UserCreate.model_json_schema()
+                }
+            },
+            "required": True,
+        }
+    }
+)
 async def create_user(
     request: Request,
     current_user: User = Depends(get_current_user),
@@ -339,26 +369,74 @@ def list_users(
     return UserListResponse(users=user_responses, total=len(user_responses))
 
 
-@router.get("/me", response_model=UserResponse, status_code=status.HTTP_200_OK)
+@router.get("/me", response_model=UserMeResponse, status_code=status.HTTP_200_OK)
 def get_current_user_info(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-) -> UserResponse:
-    """
-    Get current authenticated user's information.
-    """
-    api_logger.info(f"User info requested by {current_user.username}")
-    
-    permissions = PermissionService.get_user_permissions(db, current_user)
-    
-    return UserResponse(
-        id=current_user.id,
-        name=current_user.name,
-        username=current_user.username,
-        role=current_user.role,
-        is_active=current_user.is_active,
-        created_at=current_user.created_at,
-        permissions=[p.value for p in permissions]
+    identity: AuthenticatedIdentity = Depends(get_current_identity),
+    db: Session = Depends(get_db),
+) -> UserMeResponse:
+    """Return the authenticated subject profile (user or coach)."""
+
+    if identity.user is not None:
+        user = identity.user
+        api_logger.info("Profile info requested by user %s", user.username)
+        permission_details = PermissionService.get_user_permission_details(db, user)
+        return UserProfileResponse(
+            user=UserProfileInfo(
+                user_id=user.id,
+                name=user.name,
+                username=user.username,
+                role=user.role.value,
+                permissions=[
+                    PermissionSummary(
+                        permission_id=detail.permission_id,
+                        permission_name=detail.permission_name,
+                    )
+                    for detail in permission_details
+                ],
+            )
+        )
+
+    if identity.coach is not None:
+        coach = identity.coach
+        api_logger.info("Profile info requested by coach %s", coach.username)
+
+        schools = [
+            CoachSchoolSummary(
+                school_id=assignment.school.id,
+                school_name=assignment.school.name,
+            )
+            for assignment in coach.school_assignments
+            if assignment.school is not None
+        ]
+
+        batches: list[CoachBatchSummary] = []
+        for assignment in coach.batch_assignments:
+            batch = assignment.batch
+            if batch is None:
+                continue
+            school = batch.school
+            batches.append(
+                CoachBatchSummary(
+                    batch_id=batch.id,
+                    batch_name=batch.batch_name,
+                    school_id=school.id if school else batch.school_id,
+                    school_name=school.name if school else "",
+                )
+            )
+
+        return CoachProfileResponse(
+            coach=CoachProfileInfo(
+                coach_id=coach.id,
+                name=coach.name,
+                username=coach.username,
+                schools=schools,
+                batches=batches,
+            )
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unable to resolve authenticated subject",
     )
 
 
@@ -443,6 +521,9 @@ def perform_update_user(
         is_active=is_active
     )
     
+    # Sync coach if applicable
+    CoachService.sync_coach(db, updated_user)
+    
     permissions = PermissionService.get_user_permissions(db, updated_user)
     
     return UserResponse(
@@ -456,7 +537,21 @@ def perform_update_user(
     )
 
 
-@router.put("/{user_id}", response_model=UserResponse, status_code=status.HTTP_200_OK)
+@router.put(
+    "/{user_id}",
+    response_model=UserResponse,
+    status_code=status.HTTP_200_OK,
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": UserUpdate.model_json_schema()
+                }
+            },
+            "required": True,
+        }
+    }
+)
 async def update_user(
     user_id: int,
     request: Request,

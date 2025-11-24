@@ -9,6 +9,8 @@ from src.db.models.user import User, UserRole
 from src.db.repositories.user_repository import UserRepository
 from src.core.security import PasswordHandler
 from src.core.logging import api_logger
+from src.db.models.coach import Coach
+from src.db.repositories.coach_repository import CoachRepository
 
 
 class UserService:
@@ -61,6 +63,17 @@ class UserService:
         
         user = UserRepository.create(db, user_data)
         api_logger.info(f"User '{username}' created by '{creator.username}'")
+        
+        # Sync with Coach table if role is COACH
+        if role == UserRole.COACH:
+            coach = Coach(
+                name=name,
+                username=username,
+                password=hashed_password, # Using same hashed password
+                is_active=True
+            )
+            CoachRepository.create(db, coach)
+            api_logger.info(f"Coach profile created for user '{username}'")
         
         return user
     
@@ -138,8 +151,29 @@ class UserService:
         if is_active is not None:
             update_data["is_active"] = is_active
         
+        # Capture old username before update for Coach sync
+        old_username = user.username
+        
         updated_user = UserRepository.update(db, user, update_data)
         api_logger.info(f"User '{user.username}' updated")
+        
+        # Sync with Coach table if role is COACH
+        if user.role == UserRole.COACH:
+            coach = CoachRepository.get_by_username(db, old_username)
+            if coach:
+                coach_update = {}
+                if name is not None:
+                    coach_update["name"] = name
+                if username is not None:
+                    coach_update["username"] = username
+                if password is not None:
+                    coach_update["password"] = update_data["hashed_password"]
+                if is_active is not None:
+                    coach_update["is_active"] = is_active
+                
+                if coach_update:
+                    CoachRepository.update(db, coach, coach_update)
+                    api_logger.info(f"Coach profile updated for user '{old_username}' -> '{user.username}'")
         
         return updated_user
     
@@ -163,5 +197,12 @@ class UserService:
                 detail="Cannot delete your own account"
             )
         
+        # Sync delete with Coach table if role is COACH
+        if target_user.role == UserRole.COACH:
+            coach = CoachRepository.get_by_username(db, target_user.username)
+            if coach:
+                CoachRepository.delete(db, coach)
+                api_logger.info(f"Coach profile deleted for user '{target_user.username}'")
+
         UserRepository.delete(db, target_user)
         api_logger.info(f"User '{target_user.username}' deleted by '{deleter.username}'")

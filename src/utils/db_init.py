@@ -5,81 +5,32 @@ from sqlalchemy.orm import Session
 
 from src.db.database import SessionLocal, init_database
 from src.db.models.user import User, UserRole
-from src.db.models.permission import Permission, PermissionType
-from src.db.models.role_permission import RolePermission
 from src.db.repositories.user_repository import UserRepository
 from src.db.repositories.permission_repository import PermissionRepository
-from src.db.repositories.role_permission_repository import RolePermissionRepository
 from src.core.security import PasswordHandler
 from src.core.logging import db_logger, api_logger
 from src.core.config import settings
+from src.db.models.permission import PermissionType
 
 
-# Default role-permission mappings for initial setup
-DEFAULT_ROLE_PERMISSIONS = {
-    UserRole.ADMIN: [
-        # Can manage all users
-        PermissionType.CREATE_USER,
-        PermissionType.CREATE_COACH,
-        PermissionType.CREATE_ADMIN,
-        PermissionType.DELETE_USER,
-        PermissionType.DELETE_COACH,
-        PermissionType.DELETE_ADMIN,
-        PermissionType.VIEW_ALL_USERS,
-        PermissionType.EDIT_ALL_USERS,
-        # Can manage permissions
-        PermissionType.ASSIGN_PERMISSIONS,
-        PermissionType.REVOKE_PERMISSIONS,
-        PermissionType.VIEW_PERMISSIONS,
-        # Can also view/edit own profile
-        PermissionType.VIEW_OWN_PROFILE,
-        PermissionType.EDIT_OWN_PROFILE,
-    ],
-    UserRole.USER: [
-        # Can only manage own profile
-        PermissionType.VIEW_OWN_PROFILE,
-        PermissionType.EDIT_OWN_PROFILE,
-    ],
-    UserRole.COACH: [
-        # Can only manage own profile
-        PermissionType.VIEW_OWN_PROFILE,
-        PermissionType.EDIT_OWN_PROFILE,
-    ],
-}
+DEFAULT_PERMISSION_DEFINITIONS = tuple(perm.value for perm in PermissionType)
 
 
 def create_initial_permissions(db: Session) -> None:
-    """Create all system permissions in the database."""
+    """Create baseline permissions as plain strings."""
     api_logger.info("Creating initial permissions...")
-    
-    for perm_type in PermissionType:
-        existing = PermissionRepository.get_by_name(db, perm_type)
+
+    for permission_name in DEFAULT_PERMISSION_DEFINITIONS:
+        existing = PermissionRepository.get_by_name(db, permission_name)
         if not existing:
             PermissionRepository.create(
                 db,
-                perm_type,
-                f"Permission: {perm_type.value}"
+                permission_name,
+                f"Permission: {permission_name}",
             )
-            api_logger.info(f"Created permission: {perm_type.value}")
-    
+            api_logger.info(f"Created permission: {permission_name}")
+
     api_logger.info("Initial permissions created successfully")
-
-
-def create_default_role_permissions(db: Session) -> None:
-    """Create default role-permission mappings in database."""
-    api_logger.info("Setting up default role permissions...")
-    
-    for role, permissions in DEFAULT_ROLE_PERMISSIONS.items():
-        for perm_type in permissions:
-            permission = PermissionRepository.get_by_name(db, perm_type)
-            if permission:
-                RolePermissionRepository.assign_permission_to_role(
-                    db,
-                    role,
-                    permission.id
-                )
-    
-    api_logger.info("Default role permissions configured")
 
 
 def create_initial_admin(db: Session) -> None:
@@ -111,6 +62,11 @@ def create_initial_admin(db: Session) -> None:
     api_logger.info(f"Initial admin created: {admin.username} (ID: {admin.id})")
 
 
+def create_default_role_permissions(db: Session) -> None:
+    """Compatibility shim; explicit role-permission seeding no longer required."""
+    api_logger.info("Skipping legacy role-permission seeding; handled dynamically.")
+
+
 def setup_database() -> None:
     """Initialize database with tables and seed data."""
     api_logger.info("Setting up database...")
@@ -125,9 +81,6 @@ def setup_database() -> None:
         try:
             # Create permissions first
             create_initial_permissions(db)
-            
-            # Create default role-permission mappings
-            create_default_role_permissions(db)
             
             # Create initial admin
             create_initial_admin(db)

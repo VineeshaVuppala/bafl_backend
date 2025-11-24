@@ -1,24 +1,78 @@
-"""
-Permission service containing business logic for permission operations.
-"""
+"""Permission service containing business logic for permission operations."""
+from dataclasses import dataclass
+from typing import Union
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from src.db.models.user import User, UserRole
 from src.db.models.permission import Permission, PermissionType
+from src.db.models.user import User, UserRole
 from src.db.repositories.permission_repository import (
     PermissionRepository,
     UserPermissionRepository
 )
-from src.db.repositories.role_permission_repository import RolePermissionRepository
 from src.core.logging import api_logger
 
 
 class PermissionService:
     """Service for permission management operations."""
+
+    class DynamicPermission(str):
+        """Wrapper providing `.value` attribute for plain string permissions."""
+
+        @property
+        def value(self) -> str:  # pragma: no cover - trivial accessor
+            return str(self)
+
+    ROLE_BASE_PERMISSIONS = {
+        UserRole.ADMIN: (
+            PermissionType.CREATE_USER,
+            PermissionType.CREATE_COACH,
+            PermissionType.CREATE_ADMIN,
+            PermissionType.DELETE_USER,
+            PermissionType.DELETE_COACH,
+            PermissionType.DELETE_ADMIN,
+            PermissionType.VIEW_ALL_USERS,
+            PermissionType.EDIT_ALL_USERS,
+            PermissionType.ASSIGN_PERMISSIONS,
+            PermissionType.REVOKE_PERMISSIONS,
+            PermissionType.VIEW_PERMISSIONS,
+            PermissionType.VIEW_OWN_PROFILE,
+            PermissionType.EDIT_OWN_PROFILE,
+            PermissionType.PHYSICAL_SESSIONS_VIEW,
+            PermissionType.PHYSICAL_SESSIONS_EDIT,
+            PermissionType.PHYSICAL_SESSIONS_ADD,
+        ),
+        UserRole.USER: (
+            PermissionType.VIEW_OWN_PROFILE,
+            PermissionType.EDIT_OWN_PROFILE,
+            PermissionType.PHYSICAL_SESSIONS_VIEW,
+            PermissionType.PHYSICAL_SESSIONS_EDIT,
+            PermissionType.PHYSICAL_SESSIONS_ADD,
+        ),
+        UserRole.COACH: (
+            PermissionType.VIEW_OWN_PROFILE,
+            PermissionType.EDIT_OWN_PROFILE,
+            PermissionType.PHYSICAL_SESSIONS_VIEW,
+            PermissionType.PHYSICAL_SESSIONS_EDIT,
+            PermissionType.PHYSICAL_SESSIONS_ADD,
+        ),
+    }
+
+    @dataclass(frozen=True)
+    class PermissionDetail:
+        permission_id: int
+        permission_name: str
+
+    @staticmethod
+    def _to_permission_token(name: str) -> Union[PermissionType, "PermissionService.DynamicPermission"]:
+        try:
+            return PermissionType(name)
+        except ValueError:
+            return PermissionService.DynamicPermission(name)
     
     @staticmethod
-    def get_user_permissions(db: Session, user: User) -> list[PermissionType]:
+    def get_user_permissions(db: Session, user: User) -> list[Union[PermissionType, "PermissionService.DynamicPermission"]]:
         """
         Get all permissions for a user (role-based + custom).
         
@@ -29,19 +83,49 @@ class PermissionService:
         Returns:
             List of permission types
         """
-        # Start with role-based permissions from database
-        role_permissions = RolePermissionRepository.get_permissions_for_role(db, user.role)
-        permissions = {perm.name for perm in role_permissions}
-        
-        # Add custom user-specific permissions
-        user_perms = UserPermissionRepository.get_user_permissions(db, user.id)
-        for user_perm in user_perms:
-            permissions.add(user_perm.permission.name)
-        
-        return sorted(list(permissions), key=lambda perm: perm.value)
+        base_permissions = PermissionService.ROLE_BASE_PERMISSIONS.get(user.role, tuple())
+        permission_names = {perm.value for perm in base_permissions}
+
+        for assignment in UserPermissionRepository.get_user_permissions(db, user.id):
+            permission_names.add(assignment.permission.permission_name)
+
+        normalized = [PermissionService._to_permission_token(name) for name in permission_names]
+        return sorted(normalized, key=lambda perm: perm.value)
+
+    @staticmethod
+    def get_user_permission_details(
+        db: Session,
+        user: User,
+    ) -> list["PermissionService.PermissionDetail"]:
+        """Return both role-derived and custom permission details for a user."""
+
+        collected: dict[str, PermissionService.PermissionDetail] = {}
+
+        base_permissions = PermissionService.ROLE_BASE_PERMISSIONS.get(user.role, tuple())
+        for perm in base_permissions:
+            permission = PermissionRepository.get_or_create(
+                db,
+                perm,
+                f"Permission: {perm.value}",
+            )
+            collected[permission.permission_name] = PermissionService.PermissionDetail(
+                permission_id=permission.id,
+                permission_name=permission.permission_name,
+            )
+
+        for assignment in UserPermissionRepository.get_user_permissions(db, user.id):
+            permission = assignment.permission
+            if permission is None:
+                continue
+            collected[permission.permission_name] = PermissionService.PermissionDetail(
+                permission_id=permission.id,
+                permission_name=permission.permission_name,
+            )
+
+        return sorted(collected.values(), key=lambda detail: detail.permission_name)
     
     @staticmethod
-    def has_permission(db: Session, user: User, permission: PermissionType) -> bool:
+    def has_permission(db: Session, user: User, permission: PermissionType | str) -> bool:
         """
         Check if user has a specific permission.
         
@@ -53,8 +137,9 @@ class PermissionService:
         Returns:
             True if user has permission
         """
-        user_permissions = PermissionService.get_user_permissions(db, user)
-        return permission in user_permissions
+        target_name = permission.value if isinstance(permission, PermissionType) else str(permission)
+        user_permissions = {perm.value for perm in PermissionService.get_user_permissions(db, user)}
+        return target_name in user_permissions
     
     @staticmethod
     def can_create_role(db: Session, creator: User, target_role: UserRole) -> bool:
@@ -136,6 +221,116 @@ class PermissionService:
     def get_all_permissions(db: Session) -> list[Permission]:
         """Get all available permissions."""
         return PermissionRepository.get_all(db)
+
+    @staticmethod
+    def get_permission_by_id(db: Session, permission_id: int) -> Permission:
+        permission = PermissionRepository.get_by_id(db, permission_id)
+        if not permission:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Permission not found",
+            )
+        return permission
+
+    @staticmethod
+    def assign_permission_by_id(
+        db: Session,
+        *,
+        permission_id: int,
+        assigner: User,
+        user_id: int | None = None,
+        coach_id: int | None = None,
+    ) -> None:
+        """Assign a permission by identifier to a user or coach."""
+        
+        if user_id == 0:
+            user_id = None
+        if coach_id == 0:
+            coach_id = None
+
+        if (user_id is None) == (coach_id is None):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide exactly one of user_id or coach_id",
+            )
+
+        permission = PermissionService.get_permission_by_id(db, permission_id)
+
+        if UserPermissionRepository.has_permission(
+            db,
+            permission_id,
+            user_id=user_id,
+            coach_id=coach_id,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Permission already assigned",
+            )
+
+        UserPermissionRepository.assign_permission(
+            db,
+            permission_id=permission.id,
+            assigned_by=assigner.id,
+            user_id=user_id,
+            coach_id=coach_id,
+        )
+
+        target = user_id if user_id is not None else coach_id
+        target_type = "user" if user_id is not None else "coach"
+        api_logger.info(
+            "Permission '%s' assigned to %s %s by '%s'",
+            permission.permission_name,
+            target_type,
+            target,
+            assigner.username,
+        )
+
+    @staticmethod
+    def revoke_permission_by_id(
+        db: Session,
+        *,
+        permission_id: int,
+        revoker: User,
+        user_id: int | None = None,
+        coach_id: int | None = None,
+    ) -> None:
+        """Revoke a permission by identifier from a user or coach."""
+
+        if user_id == 0:
+            user_id = None
+        if coach_id == 0:
+            coach_id = None
+
+        if (user_id is None) == (coach_id is None):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provide exactly one of user_id or coach_id",
+            )
+
+        permission = PermissionService.get_permission_by_id(db, permission_id)
+
+        success = UserPermissionRepository.revoke_permission(
+            db,
+            permission_id=permission.id,
+            user_id=user_id,
+            coach_id=coach_id,
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Permission not assigned to target",
+            )
+
+        target = user_id if user_id is not None else coach_id
+        target_type = "user" if user_id is not None else "coach"
+        api_logger.info(
+            "Permission '%s' revoked from %s %s by '%s'",
+            permission.permission_name,
+            target_type,
+            target,
+            revoker.username,
+        )
     
     @staticmethod
     def assign_permission(
@@ -164,7 +359,7 @@ class PermissionService:
         )
         
         # Check if already assigned
-        if UserPermissionRepository.has_permission(db, user_id, permission.id):
+        if UserPermissionRepository.has_permission(db, permission.id, user_id=user_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Permission already assigned to user"
@@ -173,9 +368,9 @@ class PermissionService:
         # Assign permission
         UserPermissionRepository.assign_permission(
             db,
-            user_id,
             permission.id,
-            assigner.id
+            assigner.id,
+            user_id=user_id,
         )
         
         api_logger.info(
@@ -210,7 +405,7 @@ class PermissionService:
                 detail="Permission not found"
             )
         
-        success = UserPermissionRepository.revoke_permission(db, user_id, permission.id)
+        success = UserPermissionRepository.revoke_permission(db, permission.id, user_id=user_id)
         
         if not success:
             raise HTTPException(

@@ -1,42 +1,44 @@
-"""
-Permission related Pydantic schemas.
-"""
-from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict
-
-from src.db.models.permission import PermissionType
+"""Permission related Pydantic schemas."""
+from pydantic import BaseModel, Field, model_validator
 
 
-class PermissionResponse(BaseModel):
-    """Schema for permission response."""
-    id: int
-    name: PermissionType
-    description: str | None = None
-    
-    model_config = ConfigDict(from_attributes=True)
+class PermissionSummary(BaseModel):
+    """Permission item returned in list responses."""
+
+    permission_id: int
+    permission_name: str
 
 
 class PermissionListResponse(BaseModel):
-    """Schema for list of permissions."""
-    permissions: list[PermissionResponse]
-    total: int
+    """Contract response for listing permissions."""
+
+    permissions: list[PermissionSummary]
 
 
 class AssignPermissionRequest(BaseModel):
-    """Schema for assigning permission to user."""
-    user_id: int = Field(..., gt=0, description="User ID")
-    permission: PermissionType = Field(..., description="Permission to assign")
+    """Contract request for assigning a permission."""
+
+    permission_id: int
+    user_id: int | None = Field(default=None, description="Target user identifier")
+    coach_id: int | None = Field(default=None, description="Target coach identifier")
+    assigned_by: int | None = Field(default=None, description="Submitting admin identifier")
+
+    @model_validator(mode="after")
+    def validate_target(cls, values: "AssignPermissionRequest") -> "AssignPermissionRequest":
+        if (values.user_id is None) == (values.coach_id is None):
+            raise ValueError("Provide exactly one of user_id or coach_id")
+        return values
 
 
 class RevokePermissionRequest(BaseModel):
-    """Schema for revoking permission from user."""
-    user_id: int = Field(..., gt=0, description="User ID")
-    permission: PermissionType = Field(..., description="Permission to revoke")
+    """Contract request for revoking a permission."""
 
+    permission_id: int
+    user_id: int | None = None
+    coach_id: int | None = None
 
-class UserPermissionsResponse(BaseModel):
-    """Schema for user permissions response."""
-    user_id: int
-    username: str
-    role: str
-    permissions: list[str]
+    @model_validator(mode="after")
+    def validate_target(cls, values: "RevokePermissionRequest") -> "RevokePermissionRequest":
+        if (values.user_id is None) == (values.coach_id is None):
+            raise ValueError("Provide exactly one of user_id or coach_id")
+        return values

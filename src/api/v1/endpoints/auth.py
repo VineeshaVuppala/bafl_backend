@@ -1,23 +1,33 @@
-"""
-Authentication endpoints for login, token refresh, and logout.
-"""
-from fastapi import APIRouter, Depends, HTTPException, status, Form, Body, Request
+"""Authentication endpoints for login, token refresh, and logout."""
 from typing import Optional
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from src.api.v1.dependencies.auth import AuthenticatedIdentity, get_current_identity
+from src.core.logging import api_logger
 from src.db.database import get_db
-from src.schemas.auth import LoginRequest, TokenResponse, RefreshTokenRequest, LogoutRequest
+from src.db.models.coach import Coach
+from src.db.models.user import User
+from src.schemas.auth import (
+    LoginCoachResponse,
+    LoginCoachDetails,
+    LoginRequest,
+    LoginResponse,
+    LoginUserResponse,
+    LoginUserDetails,
+    LogoutRequest,
+    RefreshTokenRequest,
+    TokenResponse,
+)
 from src.schemas.common import MessageResponse
 from src.services.auth_service import AuthService
-from src.api.v1.dependencies.auth import get_current_user
-from src.db.models.user import User
-from src.core.logging import api_logger
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-def perform_login(username: str, password: str, db: Session) -> TokenResponse:
+def perform_login(username: str, password: str, db: Session) -> LoginResponse:
     """
     Core login logic - authenticates user and returns tokens.
     
@@ -34,27 +44,64 @@ def perform_login(username: str, password: str, db: Session) -> TokenResponse:
     """
     api_logger.info(f"Login attempt for username: {username}")
 
-    user = AuthService.authenticate_user(db, username, password)
+    identity = AuthService.authenticate_user(db, username, password)
 
-    if not user:
+    if not identity:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token, refresh_token = AuthService.create_tokens(db, user)
+    principal_type, principal = identity
+    access_token, refresh_token = AuthService.create_tokens(db, principal_type, principal)
 
     api_logger.info(f"Login successful for user: {username}")
 
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer"
+    if principal_type == "user" and isinstance(principal, User):
+        return LoginUserResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=LoginUserDetails(
+                user_id=principal.id,
+                name=principal.name,
+                username=principal.username,
+                role=principal.role.value,
+            ),
+        )
+
+    if principal_type == "coach" and isinstance(principal, Coach):
+        return LoginCoachResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            coach=LoginCoachDetails(
+                coach_id=principal.id,
+                name=principal.name,
+                username=principal.username,
+            ),
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Unable to construct login response",
     )
 
 
-@router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": LoginRequest.model_json_schema()
+                }
+            },
+            "required": True,
+        }
+    }
+)
 async def login(
     request: Request,
     db: Session = Depends(get_db)
@@ -104,7 +151,12 @@ async def login(
     return perform_login(str(final_username), str(final_password), db)
 
 
-@router.post("/login/json", response_model=TokenResponse, status_code=status.HTTP_200_OK, include_in_schema=False)
+@router.post(
+    "/login/json",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    include_in_schema=False,
+)
 def login_json(
     credentials: LoginRequest = Body(...),
     db: Session = Depends(get_db)
@@ -150,20 +202,26 @@ def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_db)) -
 @router.post("/logout", response_model=MessageResponse, status_code=status.HTTP_200_OK)
 def logout(
     request: LogoutRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    identity: AuthenticatedIdentity = Depends(get_current_identity),
+    db: Session = Depends(get_db),
 ) -> MessageResponse:
     """
     Logout user by revoking refresh token.
     
     - **refresh_token**: Refresh token to revoke
     """
-    api_logger.info(f"Logout request from user: {current_user.username}")
+    if identity.user is not None:
+        principal_name = identity.user.username
+    elif identity.coach is not None:
+        principal_name = identity.coach.username
+    else:
+        principal_name = "unknown"
+    api_logger.info(f"Logout request from principal: {principal_name}")
     
     success = AuthService.logout(db, request.refresh_token)
     
     if success:
-        api_logger.info(f"User logged out: {current_user.username}")
+        api_logger.info(f"Principal logged out: {principal_name}")
         return MessageResponse(message="Successfully logged out", success=True)
     else:
         return MessageResponse(message="Token already revoked or invalid", success=True)

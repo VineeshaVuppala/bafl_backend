@@ -30,7 +30,14 @@ Base = declarative_base()
 # Import all models to register with Base
 from src.db.models.user import User, RefreshToken
 from src.db.models.permission import Permission, UserPermission
-from src.db.models.role_permission import RolePermission
+from src.db.models.school import School
+from src.db.models.coach import Coach
+from src.db.models.batch import Batch
+from src.db.models.batch_schedule import BatchSchedule
+from src.db.models.coach_batch import CoachBatch
+from src.db.models.coach_school import CoachSchool
+from src.db.models.student import Student
+from src.db.models.physical_assessment import PhysicalAssessmentSession, PhysicalAssessmentDetail
 
 
 def get_db() -> Generator[Session, None, None]:
