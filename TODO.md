@@ -1,3 +1,0 @@
-- [x] Audit success and error handling across relevant services and endpoints (`src/api/v1/endpoints`, `src/services`, `src/db/repositories`).
-- [x] Verify entity assignment validation logic (e.g., coach-school, batch-student) in `src/services/student_service.py`, `src/services/batch_service.py`, and related modules.
-- [x] Produce API request body catalog for each endpoint in `docs/api_request_reference.md`.
