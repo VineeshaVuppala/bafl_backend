@@ -24,27 +24,12 @@ require_view_sessions = require_permission(PermissionType.PHYSICAL_SESSIONS_VIEW
 require_edit_sessions = require_permission(PermissionType.PHYSICAL_SESSIONS_EDIT)
 require_add_sessions = require_permission(PermissionType.PHYSICAL_SESSIONS_ADD)
 
-@router.post("/sessions/", response_model=PhysicalAssessmentSessionResponse, status_code=status.HTTP_201_CREATED, openapi_extra={"requestBody": {"content": {"application/json": {"schema": PhysicalAssessmentSessionCreate.model_json_schema()}}, "required": True}})
-async def create_session(
-    request: Request,
-    current_user: User = Depends(require_add_sessions),
-    db: Session = Depends(get_db)
-):
-    session_data = await parse_request(request, PhysicalAssessmentSessionCreate)
-    # Coach filtering logic: Coach can only create sessions for their batches?
-    # For now, assuming permission check is enough, but ideally we check if coach is assigned to batch.
-    return PhysicalAssessmentService.create_session(db, session_data)
-
-
 @router.post("/sessions/create-with-results", response_model=PhysicalAssessmentSessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session_with_results(
-    request: Request,
+    payload: PhysicalAssessmentSessionWithResultsCreate,
     current_user: User = Depends(require_add_sessions),
     db: Session = Depends(get_db)
 ):
-    # Normalize request (accepts JSON and multipart/form-data)
-    payload = await parse_request(request, PhysicalAssessmentSessionWithResultsCreate)
-
     # Authorization: coaches can only create for batches they own
     if current_user.role == UserRole.COACH:
         # If coach_id provided, ensure it matches
@@ -62,28 +47,6 @@ async def create_session_with_results(
         raise HTTPException(status_code=500, detail={"code": "server_error", "message": str(e)})
 
     return new_session
-
-@router.get("/sessions/", response_model=list[PhysicalAssessmentSessionResponse])
-def get_sessions(
-    skip: int = 0,
-    limit: int = 100,
-    current_user: User = Depends(require_view_sessions),
-    db: Session = Depends(get_db)
-):
-    # Coach filtering: restrict sessions to those the coach owns or runs.
-    sessions = PhysicalAssessmentService.get_all_sessions(db, skip, limit)
-    if current_user.role == UserRole.COACH:
-        coach_profile = getattr(current_user, "coach_profile", None)
-        if not coach_profile:
-            return []
-        filtered_sessions = []
-        for session in sessions:
-            if session.coach_id == coach_profile.id:
-                filtered_sessions.append(session)
-            elif session.batch and session.batch.coach_id == coach_profile.id:
-                filtered_sessions.append(session)
-        return [PhysicalAssessmentService.serialize_session(db, session) for session in filtered_sessions]
-    return [PhysicalAssessmentService.serialize_session(db, session) for session in sessions]
 
 @router.get("/sessions/{session_id}", response_model=PhysicalAssessmentSessionResponse)
 def get_session(
@@ -196,8 +159,6 @@ def get_admin_view_sessions(
     current_user: User = Depends(require_view_sessions),
     db: Session = Depends(get_db)
 ):
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(status_code=403, detail="Admin access required")
     return PhysicalAssessmentService.get_admin_view_sessions(db)
 
 @router.get("/sessions/coach-view", response_model=PhysicalAssessmentSessionAdminViewResponse)
