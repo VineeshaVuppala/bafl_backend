@@ -3,6 +3,15 @@ BAFL Backend API - Main Application Entry Point
 """
 import time
 from contextlib import asynccontextmanager
+import os
+import sys
+
+# Ensure `physical_assesment/src` is on sys.path so `from src...` imports work
+# when the app is run from the repository root (e.g. `uvicorn main:app`).
+ROOT_DIR = os.path.dirname(__file__)
+SRC_PATH = os.path.join(ROOT_DIR, "src")
+if SRC_PATH not in sys.path:
+    sys.path.insert(0, SRC_PATH)
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse

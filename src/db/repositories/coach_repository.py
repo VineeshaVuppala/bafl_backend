@@ -24,6 +24,13 @@ class CoachRepository:
         return list(db.scalars(select(Coach).offset(skip).limit(limit)).all())
 
     @staticmethod
+    def get_by_school(db: Session, school_id: int, skip: int = 0, limit: int = 100) -> List[Coach]:
+        from src.db.models.coach_school import CoachSchool
+
+        stmt = select(Coach).join(CoachSchool).where(CoachSchool.school_id == school_id).offset(skip).limit(limit)
+        return list(db.scalars(stmt).all())
+
+    @staticmethod
     def update(db: Session, coach: Coach, update_data: dict) -> Coach:
         for key, value in update_data.items():
             setattr(coach, key, value)

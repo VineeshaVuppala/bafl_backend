@@ -17,3 +17,5 @@ class School(Base):
     coach_assignments = relationship("CoachSchool", back_populates="school", cascade="all, delete-orphan")
     coaches = association_proxy("coach_assignments", "coach")
     physical_sessions = relationship("PhysicalAssessmentSession", back_populates="school")
+    attendance_sessions = relationship("AttendanceSession", back_populates="school")
+    coach_attendance = relationship("CoachAttendance", back_populates="school", cascade="all, delete-orphan", lazy="selectin")

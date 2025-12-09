@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from src.db.models.physical_assessment import PhysicalAssessmentDetail, PhysicalAssessmentSession
 from src.db.models.student import Student
 from src.db.repositories.batch_repository import BatchRepository
+from src.db.repositories.school_repository import SchoolRepository
 from src.db.repositories.physical_results_repository import PhysicalResultsRepository
 from src.db.repositories.physical_session_repository import PhysicalSessionRepository
 from src.db.repositories.student_repository import StudentRepository
@@ -178,3 +179,22 @@ class StudentService:
                 "new_batch_id": new_batch_id,
             },
         }
+
+    @staticmethod
+    def get_students_by_school_and_batch(db: Session, school_name: str, batch_name: str) -> list[dict]:
+        # Validate school
+        # Use direct model lookup instead of repository helper for name lookup
+        from src.db.models.school import School as SchoolModel
+        from src.db.models.batch import Batch as BatchModel
+
+        school_obj = db.scalar(select(SchoolModel).where(SchoolModel.name == school_name))
+        if not school_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"School '{school_name}' not found")
+
+        batch_obj = db.scalar(select(BatchModel).where(BatchModel.school_id == school_obj.id, BatchModel.batch_name == batch_name))
+        if not batch_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Batch '{batch_name}' not found for school '{school_name}'")
+
+        students = StudentRepository.get_by_batch(db, batch_obj.id)
+        # Return list of dicts with id and name
+        return [{"id": s.id, "name": s.name} for s in students]

@@ -81,15 +81,26 @@ class PhysicalAssessmentService:
 
         batch_schedule = []
         if session.batch and session.batch.schedules:
-            batch_schedule = [
-                BatchScheduleItem(
-                    schedule_id=s.id,
-                    day_of_week=s.day_of_week,
-                    start_time=s.start_time,
-                    end_time=s.end_time,
+            batch_schedule = []
+            for schedule in session.batch.schedules:
+                start_time = schedule.start_time
+                end_time = schedule.end_time
+
+                # Ensure we pass strings to the schema validator to avoid regex errors when values
+                # are already time objects from SQLAlchemy rows.
+                if hasattr(start_time, "strftime"):
+                    start_time = start_time.strftime("%I:%M %p")
+                if hasattr(end_time, "strftime"):
+                    end_time = end_time.strftime("%I:%M %p")
+
+                batch_schedule.append(
+                    BatchScheduleItem(
+                        schedule_id=schedule.id,
+                        day_of_week=schedule.day_of_week,
+                        start_time=start_time,
+                        end_time=end_time,
+                    )
                 )
-                for s in session.batch.schedules
-            ]
 
         results: List[PhysicalAssessmentResultResponse] = []
         if include_results:
@@ -324,25 +335,26 @@ class PhysicalAssessmentService:
             record["is_present"] = any_nonzero
             results_to_insert.append(record)
 
+        new_session: PhysicalAssessmentSession | None = None
         try:
-            with db.begin():
-                new_session = PhysicalAssessmentSession(
-                    coach_id=refs["coach_id"],
-                    school_id=refs["school_id"],
-                    batch_id=payload.batch_id,
-                    date_of_session=payload.date_of_session,
-                    student_count=len(actual_batch_student_ids),
-                )
-                db.add(new_session)
-                db.flush()
+            new_session = PhysicalAssessmentSession(
+                coach_id=refs["coach_id"],
+                school_id=refs["school_id"],
+                batch_id=payload.batch_id,
+                date_of_session=payload.date_of_session,
+                student_count=len(actual_batch_student_ids),
+            )
+            db.add(new_session)
+            db.flush()
 
-                for result in results_to_insert:
-                    result["session_id"] = new_session.id
+            for result in results_to_insert:
+                result["session_id"] = new_session.id
 
-                if results_to_insert:
-                    db.execute(insert(PhysicalAssessmentDetail), results_to_insert)
+            if results_to_insert:
+                db.execute(insert(PhysicalAssessmentDetail), results_to_insert)
 
-                db.refresh(new_session)
+            db.commit()
+            db.refresh(new_session)
 
             if invalid_ids and admin_override and is_admin:
                 api_logger.info(
@@ -360,6 +372,9 @@ class PhysicalAssessmentService:
         except IntegrityError as exc:
             db.rollback()
             db_logger.error("DB integrity error during create_session_with_results: %s", str(exc))
+            raise
+        except Exception:
+            db.rollback()
             raise
 
     @staticmethod

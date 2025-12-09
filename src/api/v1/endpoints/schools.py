@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from src.api.v1.dependencies.auth import get_current_user
+from src.api.v1.dependencies.auth import get_current_user, get_current_identity, AuthenticatedIdentity
 from src.db.database import get_db
 from src.db.models.user import User, UserRole
 from src.schemas.school import SchoolCreate, SchoolCreateResponse, SchoolResponse, SchoolUpdate
@@ -27,10 +27,14 @@ def create_school(
 def get_schools(
     skip: int = 0,
     limit: int = 100,
-    current_user: User = Depends(get_current_user),
+    identity: AuthenticatedIdentity = Depends(get_current_identity),
     db: Session = Depends(get_db)
 ):
-    return SchoolService.get_all_schools(db, skip, limit)
+    if identity.user is not None:
+        return SchoolService.get_all_schools(db, skip, limit)
+    if identity.coach is not None:
+        return SchoolService.get_schools_for_coach(db, identity.coach.id, skip, limit)
+    raise HTTPException(status_code=403, detail="Access denied")
 
 @router.get("/{school_id}", response_model=SchoolResponse)
 def get_school(

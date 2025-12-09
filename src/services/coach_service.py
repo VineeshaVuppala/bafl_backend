@@ -210,8 +210,11 @@ class CoachService:
         return CoachService._build_contract_details(coach)
 
     @staticmethod
-    def list_coaches(db: Session, skip: int = 0, limit: int = 100) -> List[CoachContractDetails]:
-        coaches = CoachRepository.get_all(db, skip, limit)
+    def list_coaches(db: Session, skip: int = 0, limit: int = 100, school_id: int | None = None) -> List[CoachContractDetails]:
+        if school_id is not None:
+            coaches = CoachRepository.get_by_school(db, school_id, skip, limit)
+        else:
+            coaches = CoachRepository.get_all(db, skip, limit)
         return [CoachService._build_contract_details(coach) for coach in coaches]
 
     @staticmethod

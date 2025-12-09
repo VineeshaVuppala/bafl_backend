@@ -15,6 +15,14 @@ class Student(Base):
 
     batch = relationship("Batch", back_populates="students")
     physical_results = relationship("PhysicalAssessmentDetail", back_populates="student")
+    attendance_records = relationship(
+        "AttendanceRecord",
+        back_populates="student",
+        primaryjoin="Student.id==AttendanceRecord.student_id",
+        foreign_keys="AttendanceRecord.student_id",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     def __repr__(self) -> str:
         return f"<Student(id={self.id}, name='{self.name}')>"
@@ -27,3 +35,11 @@ class Student(Base):
     def coach_id(self) -> int | None:
         # Legacy accessor: derive coach from current batch assignment if available
         return self.batch.coach_id if self.batch else None
+
+    @property
+    def school_name(self) -> str | None:
+        return self.batch.school.name if self.batch and self.batch.school else None
+
+    @property
+    def batch_name(self) -> str | None:
+        return self.batch.batch_name if self.batch else None

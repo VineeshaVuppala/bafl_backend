@@ -1,8 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from src.db.database import get_db
-from src.schemas.student import StudentCreate, StudentUpdate, StudentResponse, StudentChangeBatchRequest, StudentChangeBatchResponse
+from src.schemas.student import StudentCreate, StudentUpdate, StudentResponse, StudentChangeBatchRequest, StudentChangeBatchResponse, StudentBasicResponse
 from src.services.student_service import StudentService
+from src.db.models.student import Student as StudentModel
+from src.db.models.batch import Batch as BatchModel
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 from src.api.v1.dependencies.auth import get_current_user
 from src.db.models.user import User, UserRole
 from src.utils.input_parsing import parse_request
@@ -31,7 +35,10 @@ def get_students(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return StudentService.get_all_students(db, skip, limit)
+    # Load students with joined batch and school to populate school_name and batch_name without N+1 queries
+    stmt = select(StudentModel).options(joinedload(StudentModel.batch).joinedload(BatchModel.school)).offset(skip).limit(limit)
+    students = db.scalars(stmt).all()
+    return students
 
 @router.get("/{student_id}", response_model=StudentResponse)
 def get_student(
@@ -78,3 +85,14 @@ async def change_student_batch(
     data = await parse_request(request, StudentChangeBatchRequest)
     result = StudentService.change_batch(db, student_id, data.new_batch_id)
     return result
+
+
+@router.get("/by-filters", response_model=list[StudentBasicResponse])
+def get_students_by_filters(
+    school: str,
+    batch: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    students = StudentService.get_students_by_school_and_batch(db, school, batch)
+    return students

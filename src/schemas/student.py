@@ -21,6 +21,8 @@ class StudentUpdate(BaseModel):
 
 class StudentResponse(StudentBase):
     id: int
+    school_name: Optional[str] = None
+    batch_name: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -33,3 +35,11 @@ class StudentChangeBatchRequest(BaseModel):
 class StudentChangeBatchResponse(BaseModel):
     message: str
     student: dict
+
+
+class StudentBasicResponse(BaseModel):
+    id: int
+    name: str
+
+    class Config:
+        from_attributes = True

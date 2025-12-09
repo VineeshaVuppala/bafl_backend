@@ -38,6 +38,7 @@ from src.db.models.coach_batch import CoachBatch
 from src.db.models.coach_school import CoachSchool
 from src.db.models.student import Student
 from src.db.models.physical_assessment import PhysicalAssessmentSession, PhysicalAssessmentDetail
+from src.db.models.attendance import AttendanceSession, AttendanceRecord, CoachAttendance
 
 
 def get_db() -> Generator[Session, None, None]:

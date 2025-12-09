@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from src.db.database import get_db
 from src.schemas.physical_assessment import (
@@ -12,7 +12,8 @@ from src.schemas.physical_assessment import (
 )
 from src.schemas.physical_assessment import PhysicalAssessmentSessionWithResultsCreate
 from src.services.physical_assessment_service import PhysicalAssessmentService
-from src.api.v1.dependencies.auth import get_current_user, require_permission
+from src.services.physical_analytics_service import PhysicalAnalyticsService
+from src.api.v1.dependencies.auth import require_permission
 from src.db.models.user import User, UserRole
 from src.db.models.permission import PermissionType
 from src.utils.input_parsing import parse_request
@@ -47,6 +48,20 @@ async def create_session_with_results(
         raise HTTPException(status_code=500, detail={"code": "server_error", "message": str(e)})
 
     return new_session
+
+@router.post("/sessions/analytics", tags=["Physical Assessments"])
+def get_sessions_analytics(
+    payload: dict = Body(...),
+    current_user: User = Depends(require_view_sessions),
+):
+    results = payload.get("results")
+    if not isinstance(results, list):
+        raise HTTPException(status_code=400, detail="'results' must be provided as a list")
+
+    if any(not isinstance(item, dict) for item in results):
+        raise HTTPException(status_code=400, detail="Each result entry must be an object")
+
+    return PhysicalAnalyticsService.calculate(results)
 
 @router.get("/sessions/{session_id}", response_model=PhysicalAssessmentSessionResponse)
 def get_session(

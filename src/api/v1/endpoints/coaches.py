@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from src.api.v1.dependencies.auth import get_current_user
@@ -33,10 +33,12 @@ def create_coach(
 def get_coaches(
     skip: int = 0,
     limit: int = 100,
+    school_id: int | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    return CoachService.list_coaches(db, skip, limit)
+    # If school_id is provided, return coaches assigned to that school; otherwise keep existing behavior
+    return CoachService.list_coaches(db, skip, limit, school_id)
 
 @router.get("/{coach_id}", response_model=CoachContractDetails)
 def get_coach(

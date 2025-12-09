@@ -20,6 +20,13 @@ class SchoolRepository:
         return list(db.scalars(select(School).offset(skip).limit(limit)).all())
 
     @staticmethod
+    def get_by_ids(db: Session, school_ids: List[int]) -> List[School]:
+        if not school_ids:
+            return []
+        stmt = select(School).where(School.id.in_(school_ids))
+        return list(db.scalars(stmt).all())
+
+    @staticmethod
     def update(db: Session, school: School, update_data: dict) -> School:
         for key, value in update_data.items():
             setattr(school, key, value)

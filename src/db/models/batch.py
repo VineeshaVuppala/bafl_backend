@@ -17,6 +17,7 @@ class Batch(Base):
     physical_sessions = relationship("PhysicalAssessmentSession", back_populates="batch")
     coach_assignments = relationship("CoachBatch", back_populates="batch", cascade="all, delete-orphan")
     schedules = relationship("BatchSchedule", back_populates="batch", cascade="all, delete-orphan")
+    
 
     @property
     def name(self) -> str:
