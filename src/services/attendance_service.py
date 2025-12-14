@@ -1,6 +1,7 @@
-# src/services/attendance_service.py
+"""Attendance service helpers for student and coach tracking."""
+
 from datetime import date
-from typing import Any, List
+from typing import Any, Iterable, List, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, func
@@ -18,10 +19,12 @@ from src.db.models.coach import Coach
 from src.db.models.user import User
 
 from src.db.repositories.coach_repository import CoachRepository
+from src.db.repositories.school_repository import SchoolRepository
+from src.db.repositories.student_repository import StudentRepository
 
 
 def _coerce_status_value(raw_status: Any) -> AttendanceStatus:
-    """Normalize incoming status payloads regardless of casing or shorthand."""
+    """Normalize an arbitrary payload value into an ``AttendanceStatus`` enum."""
     if isinstance(raw_status, AttendanceStatus):
         return raw_status
     if isinstance(raw_status, bool):
@@ -34,59 +37,97 @@ def _coerce_status_value(raw_status: Any) -> AttendanceStatus:
             return AttendanceStatus.PRESENT
         if normalized in {"absent", "a", "0", "false", "no"}:
             return AttendanceStatus.ABSENT
+
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=f"Invalid attendance status value: {raw_status}",
     )
+def _resolve_coach(db: Session, coach_name: str) -> Optional[Coach]:
+    """Return a coach by username first, then by display name if needed."""
 
-
-def _upsert_coach_attendance(db: Session, school: School, record_date: date, coach_name: str) -> None:
     coach = CoachRepository.get_by_username(db, coach_name)
-    if not coach:
-        coach = db.scalar(select(Coach).where(Coach.name == coach_name))
+    if coach:
+        return coach
+    return db.scalar(select(Coach).where(Coach.name == coach_name))
 
-    existing_ca = db.scalar(
+
+def _fetch_coach_attendance(
+    db: Session,
+    *,
+    coach_name: str,
+    school_id: int,
+    record_date: date,
+) -> Optional[CoachAttendance]:
+    """Load an existing coach attendance row if it already exists."""
+
+    return db.scalar(
         select(CoachAttendance).where(
             CoachAttendance.coach_name == coach_name,
-            CoachAttendance.school_id == school.id,
+            CoachAttendance.school_id == school_id,
             CoachAttendance.date == record_date,
         )
     )
 
-    if existing_ca:
-        needs_update = False
-        coach_id = coach.id if coach else None
-        if existing_ca.coach_id != coach_id:
-            existing_ca.coach_id = coach_id
-            needs_update = True
-        if existing_ca.coach_name != coach_name:
-            existing_ca.coach_name = coach_name
-            needs_update = True
-        if needs_update:
-            db.add(existing_ca)
-            db.commit()
-        return
 
-    new_ca = CoachAttendance(
-        coach_id=coach.id if coach else None,
+def _ensure_coach_attendance(
+    db: Session,
+    *,
+    school: School,
+    record_date: date,
+    coach_name: str,
+) -> None:
+    """Insert or update the coach attendance record for the given payload."""
+
+    coach = _resolve_coach(db, coach_name)
+    existing = _fetch_coach_attendance(
+        db,
         coach_name=coach_name,
         school_id=school.id,
-        school_name=school.name,
-        date=record_date,
+        record_date=record_date,
     )
-    db.add(new_ca)
-    db.commit()
+
+    coach_id = coach.id if coach else None
+    if existing:
+        has_changes = False
+        if existing.coach_id != coach_id:
+            existing.coach_id = coach_id
+            has_changes = True
+        if existing.coach_name != coach_name:
+            existing.coach_name = coach_name
+            has_changes = True
+        if has_changes:
+            db.add(existing)
+        return
+
+    db.add(
+        CoachAttendance(
+            coach_id=coach_id,
+            coach_name=coach_name,
+            school_id=school.id,
+            school_name=school.name,
+            date=record_date,
+        )
+    )
 
 
-def mark_attendance(db: Session, payload: Any, current_user: User) -> dict:
-    # Resolve school by id
-    school = db.scalar(select(School).where(School.id == payload.school_id))
+def _get_school_or_404(db: Session, school_id: int) -> School:
+    """Return the school object or raise if it does not exist."""
+
+    school = SchoolRepository.get_by_id(db, school_id)
     if not school:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="School not found")
+    return school
 
-    record_date: date = payload.date
 
-    # Find or create AttendanceSession for (school_id, date)
+def _get_or_create_session(
+    db: Session,
+    *,
+    school: School,
+    record_date: date,
+    taken_by_user: User,
+) -> AttendanceSession:
+    """Fetch the attendance session for the school/date or create it."""
+
     session = db.scalar(
         select(AttendanceSession).where(
             AttendanceSession.school_id == school.id,
@@ -94,26 +135,48 @@ def mark_attendance(db: Session, payload: Any, current_user: User) -> dict:
         )
     )
 
-    if not session:
-        session = AttendanceSession(
-            school_id=school.id,
-            date=record_date,
-            taken_by_user_id=current_user.id,
+    if session:
+        return session
+
+    session = AttendanceSession(
+        school_id=school.id,
+        date=record_date,
+        taken_by_user_id=taken_by_user.id,
+    )
+    db.add(session)
+    db.flush()
+    return session
+
+
+def _validate_student_membership(student: Student, school_id: int) -> None:
+    """Ensure the student belongs to the provided school."""
+
+    if not student.batch or getattr(student.batch, "school_id", None) != school_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Student {student.id} does not belong to school {school_id}",
         )
-        db.add(session)
-        db.commit()
-        db.refresh(session)
+
+
+def _update_attendance_records(
+    db: Session,
+    *,
+    session: AttendanceSession,
+    records: Iterable[Any],
+) -> int:
+    """Create or update ``AttendanceRecord`` entries and return the update count."""
 
     students_updated = 0
 
-    # Upsert attendance records
-    for rec in payload.records:
-        student = db.scalar(select(Student).where(Student.id == rec.id))
+    for rec in records:
+        student = StudentRepository.get_by_id(db, rec.id)
         if not student:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Student with id {rec.id} not found")
-        # Validate student belongs to the same school via student's batch
-        if not student.batch or getattr(student.batch, "school_id", None) != school.id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Student {rec.id} does not belong to school {school.id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Student with id {rec.id} not found",
+            )
+
+        _validate_student_membership(student, session.school_id)
 
         existing = db.scalar(
             select(AttendanceRecord).where(
@@ -128,20 +191,57 @@ def mark_attendance(db: Session, payload: Any, current_user: User) -> dict:
             if existing.status != status_enum:
                 existing.status = status_enum
                 db.add(existing)
-                db.commit()
                 students_updated += 1
-        else:
-            new_rec = AttendanceRecord(session_id=session.id, student_id=student.id, status=status_enum)
-            db.add(new_rec)
-            db.commit()
-            students_updated += 1
+            continue
 
-    # If marked_by_coach present, create/update CoachAttendance
+        db.add(
+            AttendanceRecord(
+                session_id=session.id,
+                student_id=student.id,
+                status=status_enum,
+            )
+        )
+        students_updated += 1
+
+    return students_updated
+
+
+def mark_attendance(db: Session, payload: Any, current_user: User) -> dict:
+    """Record student attendance and optionally track coach presence."""
+
+    school = _get_school_or_404(db, payload.school_id)
+    record_date: date = payload.date
+
+    session = _get_or_create_session(
+        db,
+        school=school,
+        record_date=record_date,
+        taken_by_user=current_user,
+    )
+
+    students_updated = _update_attendance_records(
+        db,
+        session=session,
+        records=payload.records,
+    )
+
     coach_name = getattr(payload, "marked_by_coach", None)
     if coach_name:
-        _upsert_coach_attendance(db, school, record_date, coach_name)
+        _ensure_coach_attendance(
+            db,
+            school=school,
+            record_date=record_date,
+            coach_name=coach_name,
+        )
 
-    return {"message": "Attendance recorded successfully", "sessionId": session.id, "studentsUpdated": students_updated, "coachName": coach_name}
+    db.commit()
+
+    return {
+        "message": "Attendance recorded successfully",
+        "sessionId": session.id,
+        "studentsUpdated": students_updated,
+        "coachName": coach_name,
+    }
 
 
 def view_attendance(db: Session, type_: str, school_id: int, date_val: date) -> dict:

@@ -1,5 +1,5 @@
 import pytest
-from fastapi.testclient import TestClient
+import httpx
 from main import app
 
 from src.db.database import init_database, SessionLocal
@@ -9,7 +9,7 @@ from src.db.models.student import Student
 from src.db.models.user import UserRole
 
 
-client = TestClient(app)
+pytestmark = pytest.mark.anyio
 
 
 def make_dummy_user(role, coach_id=None):
@@ -30,13 +30,23 @@ def make_dummy_user(role, coach_id=None):
 def setup_db():
     # Initialize tables
     init_database()
-    yield
+    try:
+        yield
+    finally:
+        app.dependency_overrides.clear()
 
 
-def test_create_with_results_happy_path(monkeypatch):
+@pytest.fixture(scope="function")
+async def client():
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as http_client:
+        yield http_client
+
+
+async def test_create_with_results_happy_path(client):
     db = SessionLocal()
     # create coach, batch, students
-    coach = Coach(username='coach1', name='Coach One')
+    coach = Coach(username='coach1', name='Coach One', password='hashed')
     db.add(coach)
     db.commit()
     db.refresh(coach)
@@ -67,17 +77,19 @@ def test_create_with_results_happy_path(monkeypatch):
         ]
     }
 
-    resp = client.post("/api/v1/physical/sessions/create-with-results", json=payload)
+    resp = await client.post("/api/v1/physical/sessions/create-with-results", json=payload)
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data.get('id') is not None
     assert isinstance(data.get('results'), list)
     assert len(data['results']) == 2
 
+    db.close()
 
-def test_create_with_results_invalid_student_rejected(monkeypatch):
+
+async def test_create_with_results_invalid_student_rejected(client):
     db = SessionLocal()
-    coach = Coach(username='coach2', name='Coach Two')
+    coach = Coach(username='coach2', name='Coach Two', password='hashed')
     db.add(coach)
     db.commit()
     db.refresh(coach)
@@ -109,13 +121,15 @@ def test_create_with_results_invalid_student_rejected(monkeypatch):
         ]
     }
 
-    resp = client.post("/api/v1/physical/sessions/create-with-results", json=payload)
+    resp = await client.post("/api/v1/physical/sessions/create-with-results", json=payload)
     assert resp.status_code == 400
 
+    db.close()
 
-def test_atomic_rollback_on_negative_value(monkeypatch):
+
+async def test_atomic_rollback_on_negative_value(client):
     db = SessionLocal()
-    coach = Coach(username='coach3', name='Coach Three')
+    coach = Coach(username='coach3', name='Coach Three', password='hashed')
     db.add(coach)
     db.commit()
     db.refresh(coach)
@@ -143,9 +157,11 @@ def test_atomic_rollback_on_negative_value(monkeypatch):
         ]
     }
 
-    resp = client.post("/api/v1/physical/sessions/create-with-results", json=payload)
+    resp = await client.post("/api/v1/physical/sessions/create-with-results", json=payload)
     assert resp.status_code == 400
 
     # ensure no session created
     sessions = db.execute("SELECT count(*) FROM physical_assessment_sessions WHERE batch_id = :b", {'b': batch.id}).scalar()
     assert sessions == 0
+
+    db.close()

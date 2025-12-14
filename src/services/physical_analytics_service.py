@@ -16,8 +16,11 @@ EXERCISES = (
 
 
 class PhysicalAnalyticsService:
+    """Run aggregate calculations for physical assessment result payloads."""
+
     @staticmethod
     def calculate(results_payload: Sequence[Dict[str, Any]]) -> Dict[str, object]:
+        """Summarize raw physical assessment results into aggregate metrics."""
         if not results_payload:
             return PhysicalAnalyticsService._empty_response()
 

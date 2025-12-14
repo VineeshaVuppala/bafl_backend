@@ -325,6 +325,23 @@ python main.py
 3. Enter: `Bearer YOUR_ACCESS_TOKEN`
 4. Test endpoints interactively
 
+## 📅 Attendance Module Overview
+
+- Record student attendance with POST /api/v1/attendance/student; supply school_id, date, and records payloads filtered to a single school.
+- Retrieve daily views with GET /api/v1/attendance/view; set type to student or coach alongside school_id and date.
+- Summaries for a date range are available via GET /api/v1/attendance/summary; optional studentId or coachName refine the aggregation.
+- Coach presence is auto-upserted when the marked_by_coach field accompanies a student submission.
+
+## ✅ Running Tests
+
+```powershell
+conda activate bafl-backend
+pytest
+```
+
+- Async suites rely on the shared fixtures in tests/conftest.py; ensure new HTTP tests reuse them for isolation.
+- Include regression scenarios for both positive and negative attendance flows when updating business logic.
+
 ## 🐛 Troubleshooting
 
 ### Database Locked
